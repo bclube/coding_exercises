@@ -1,5 +1,5 @@
 defmodule Problem0001Test do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   use PropCheck
   doctest Problem0001
 
