@@ -9,7 +9,13 @@ defmodule Problem0001Test do
         result = brute_force_result(ints, target_value)
 
         (result == Problem0001.contains_pair_with_sum?(ints, target_value))
-        |> collect({result, ints |> length() |> div(5) |> Kernel.*(5)})
+        |> collect({
+          if(result,
+            do: :pair,
+            else: :no_pair
+          ),
+          PropTestHelpers.bucket(length(ints), 5)
+        })
       end
     end
   end
