@@ -19,16 +19,16 @@ defmodule Problem0004Test do
 
     [
       valid_codes: valid_codes,
-      base_case_solutions: base_case_solutions
+      base_case_solution_lookup: &Map.get(base_case_solutions, &1, 0)
     ]
   end
 
   describe "#{inspect(&Problem0004.solve/1)}:" do
     test "[base case 1] all possible digit strings with length == 1: matches computed value", %{
-      base_case_solutions: base_case_solutions
+      base_case_solution_lookup: base_case_solution_lookup
     } do
       for int <- 0..9, code = Integer.to_string(int) do
-        expected_result = Map.get(base_case_solutions, code, 0)
+        expected_result = base_case_solution_lookup.(code)
 
         assert Problem0004.solve(code) == expected_result,
                """
@@ -40,10 +40,10 @@ defmodule Problem0004Test do
     end
 
     test "[base case 2] all possible digit strings with length == 2: matches computed value", %{
-      base_case_solutions: base_case_solutions
+      base_case_solution_lookup: base_case_solution_lookup
     } do
       for a <- 0..9, b <- 0..9, code = Enum.join([a, b]) do
-        expected_result = Map.get(base_case_solutions, code, 0)
+        expected_result = base_case_solution_lookup.(code)
 
         assert Problem0004.solve(code) == expected_result,
                """
