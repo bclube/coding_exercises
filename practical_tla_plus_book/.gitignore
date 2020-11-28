@@ -1,0 +1,11 @@
+**/model
+**/*aux
+**/*.log
+**/*.pdf
+**/*.tex
+**/*SnapShot*.launch
+**/**/*.tla
+**/**/*.out
+**/**/MC.cfg
+**/*.pdf
+**/*.old
