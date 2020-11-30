@@ -6,6 +6,8 @@
 **/*SnapShot*.launch
 **/**/*.tla
 **/**/*.out
+**/**/*.st
+**/**/*.fp
 **/**/MC.cfg
 **/*.pdf
 **/*.old

@@ -5,33 +5,25 @@
     <stringAttribute key="distributedNetworkInterface" value="172.17.168.145"/>
     <intAttribute key="distributedNodesCount" value="1"/>
     <stringAttribute key="distributedTLC" value="off"/>
-    <intAttribute key="fpIndex" value="86"/>
+    <intAttribute key="fpIndex" value="30"/>
     <intAttribute key="maxHeapSize" value="25"/>
     <stringAttribute key="modelBehaviorInit" value=""/>
     <stringAttribute key="modelBehaviorNext" value=""/>
     <stringAttribute key="modelBehaviorSpec" value="Spec"/>
     <intAttribute key="modelBehaviorSpecType" value="1"/>
-    <stringAttribute key="modelBehaviorVars" value="people, sender, receiver, acc, amount, pc"/>
+    <stringAttribute key="modelBehaviorVars" value="capacity, curr, bins, items, pc, count"/>
     <stringAttribute key="modelComments" value=""/>
     <booleanAttribute key="modelCorrectnessCheckDeadlock" value="true"/>
-    <listAttribute key="modelCorrectnessInvariants">
-        <listEntry value="1NoOverdrafts"/>
-    </listAttribute>
+    <listAttribute key="modelCorrectnessInvariants"/>
     <listAttribute key="modelCorrectnessProperties">
         <listEntry value="0Termination"/>
-        <listEntry value="1EventuallyConsistent"/>
     </listAttribute>
-    <intAttribute key="modelEditorOpenTabs" value="10"/>
-    <stringAttribute key="modelExpressionEval" value="&lt;&lt;1,1&gt;&gt;"/>
-    <stringAttribute key="modelParameterActionConstraint" value=""/>
+    <intAttribute key="modelEditorOpenTabs" value="8"/>
+    <stringAttribute key="modelExpressionEval" value="[type: {&quot;trash&quot;, &quot;recycle&quot;}, size: 1..6]"/>
     <listAttribute key="modelParameterConstants"/>
-    <stringAttribute key="modelParameterContraint" value=""/>
-    <listAttribute key="modelParameterDefinitions"/>
-    <stringAttribute key="modelParameterModelValues" value="{}"/>
-    <stringAttribute key="modelParameterNewDefinitions" value=""/>
     <intAttribute key="modelVersion" value="20191005"/>
     <intAttribute key="numberOfWorkers" value="8"/>
     <stringAttribute key="result.mail.address" value=""/>
-    <stringAttribute key="specName" value="wire"/>
+    <stringAttribute key="specName" value="chapter02"/>
     <stringAttribute key="tlcResourcesProfile" value="local custom"/>
 </launchConfiguration>
