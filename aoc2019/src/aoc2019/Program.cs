@@ -6,7 +6,7 @@ namespace aoc2019
     {
         static void Main(string[] args)
         {
-            var result = Day01.Solution.SolveB();
+            var result = Day02.Solution.SolveB();
             Console.WriteLine(result);
         }
     }

@@ -3,7 +3,7 @@ using FluentAssertions;
 
 namespace aoc2019.Tests
 {
-  public class Day02Tests
+    public class Day01Tests
     {
         [TestCase(12, 2)]
         [TestCase(14, 2)]
