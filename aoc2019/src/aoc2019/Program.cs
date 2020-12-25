@@ -6,8 +6,8 @@ namespace aoc2019
     {
         static void Main(string[] args)
         {
-            var result = Day02.Solution.SolveB();
-            Console.WriteLine(result);
+            var least = Day03.Solution.SolveB();
+            Console.WriteLine(least);
         }
     }
 }
