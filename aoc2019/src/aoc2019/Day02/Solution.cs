@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System;
+using aoc2019.Common.IntcodeProgram;
 
 namespace aoc2019.Day02
 {
@@ -15,7 +16,7 @@ namespace aoc2019.Day02
             codes[1] = 12;
             codes[2] = 2;
 
-            var result = ExecuteIntcodeProgram(new(codes));
+            var result = IntcodeProgramExecutor.ExecuteIntcodeProgram(new(codes));
 
             return result.Codes[0];
         }
@@ -32,7 +33,7 @@ namespace aoc2019.Day02
                         .SetItem(1, noun)
                         .SetItem(2, verb);
 
-                    var result = ExecuteIntcodeProgram(new(trial));
+                    var result = IntcodeProgramExecutor.ExecuteIntcodeProgram(new(trial));
 
                     if (result.Codes[0] == 19690720)
                         return 100 * noun + verb;
@@ -49,46 +50,6 @@ namespace aoc2019.Day02
                 .Split(',', StringSplitOptions.TrimEntries)
                 .Select(int.Parse)
                 .ToArray();
-        }
-
-        public static IntcodeProgram ExecuteIntcodeProgram(IntcodeProgram program)
-        {
-            while (!Done(program))
-            {
-                program = ExecuteIntcodeProgramStep(program);
-            }
-
-            return program;
-        }
-
-        private static bool Done(IntcodeProgram program) =>
-            program.Codes[program.CurrentInstruction] == 99;
-
-        private static IntcodeProgram ExecuteIntcodeProgramStep(IntcodeProgram program)
-        {
-            var current = program.CurrentInstruction;
-            var opCode = program.Codes[current++];
-            if (opCode == 99)
-                return program;
-
-            Func<int, int, int> op = opCode switch
-            {
-                1 => (a, b) => a + b,
-                2 => (a, b) => a * b,
-                _ => throw new Exception($"Unknown op code {opCode}")
-            };
-            var a = program.Codes[program.Codes[current++]];
-            var b = program.Codes[program.Codes[current++]];
-            var resultIndex = program.Codes[current++];
-            var result = op(a, b);
-
-            var newCodes = program.Codes.SetItem(resultIndex, result);
-
-            return new IntcodeProgram()
-            {
-                Codes = newCodes,
-                CurrentInstruction = current
-            };
         }
     }
 }
