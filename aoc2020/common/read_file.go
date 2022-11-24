@@ -5,6 +5,10 @@ import (
 	"os"
 )
 
+func FileLines(path string) (<-chan string, error) {
+	return ParseFile(path, func(line string) (string, error) { return line, nil })
+}
+
 func ParseFile[T any](path string, parse_line_f func(string) (T, error)) (<-chan T, error) {
 	file, err := os.Open(path)
 	if err != nil {
