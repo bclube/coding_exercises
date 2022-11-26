@@ -1,12 +1,12 @@
 package main
 
 import (
-	"exercises/aoc2020/problem06"
+	"exercises/aoc2020/problem07"
 	"fmt"
 )
 
 func main() {
-	resultA, resultB, err := problem06.Solve()
+	resultA, resultB, err := problem07.Solve()
 	if err != nil {
 		fmt.Println("Error:", err)
 	} else {
