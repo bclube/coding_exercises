@@ -10,20 +10,14 @@ func SolveBoth(ints []int) (int, int, error) {
 	for i, v := range ints[:len(ints)-2] {
 		latest[v] = i
 	}
-	lastA := ints[len(ints)-2]
+	var lastA int
+	lastB := ints[len(ints)-2]
 	next := ints[len(ints)-1]
 	i := len(ints) - 1
-	for ; i < 2020; i++ {
-		latest[lastA] = i - 1
-		lastA = next
-		if v, exists := latest[next]; exists {
-			next = i - v
-		} else {
-			next = 0
-		}
-	}
-	lastB := lastA
 	for ; i < 30000000; i++ {
+		if i == 2020 {
+			lastA = lastB
+		}
 		latest[lastB] = i - 1
 		lastB = next
 		if v, exists := latest[next]; exists {
