@@ -9,8 +9,6 @@ type transform struct {
 	commands []*command
 }
 
-type mutation func(*transform) error
-
 func applyEvent(s *server, e *event) (
 	*server,
 	[]*command,
@@ -32,183 +30,198 @@ func (t *transform) applyEvent(e *event) error {
 		return t.applyCandidateEvent(e)
 	case leader:
 		return t.applyLeaderEvent(e)
-	default:
-		return fmt.Errorf("unrecognized server state %d", t.server.state)
 	}
+	return fmt.Errorf("unrecognized server state %d", t.server.state)
 }
 
 func (t *transform) applyFollowerEvent(e *event) error {
 	if e.term > t.server.term {
-		err := t.applyMutations(
-			matchTerm(e.term),
-			clearVoteHistory)
-		if err != nil {
+		if err := t.matchTerm(e.term); err != nil {
 			return err
 		}
+		return t.applyEvent(e)
 	}
 	switch e.eventType {
 	case electionTimeout:
-		return t.applyMutations(
-			becomeCandidate,
-			startElection)
+		return t.handleElectionTimeout()
 	case voteRequest:
 		return t.handleVoteRequest(e)
-	default:
+	}
+	return nil
+}
+
+func (t *transform) handleElectionTimeout() error {
+	if err := t.server.becomeCandidate(); err != nil {
+		return err
+	}
+	if err := t.server.incrementTerm(); err != nil {
+		return err
+	}
+	if err := t.addCommand(requestVotes); err != nil {
+		return err
+	}
+	return t.addCommand(startElectionTimer)
+}
+
+func (t *transform) matchTerm(tm term) error {
+	if t.server.term >= tm {
 		return nil
 	}
+	t.server.term = tm
+	return t.server.clearVoteHistory()
 }
 
 func (t *transform) handleVoteRequest(e *event) error {
+	if t.shouldDenyVote(e) {
+		return t.replyTo(denyVote, e.from)
+	}
+	if err := t.server.setVotingStatus(e.from); err != nil {
+		return err
+	}
+	if err := t.replyTo(grantVote, e.from); err != nil {
+		return err
+	}
+	return t.addCommand(startElectionTimer)
+}
+
+func (t *transform) shouldDenyVote(e *event) bool {
+	if e.term < t.server.term {
+		return true
+	}
 	if t.server.votedFor != "" &&
 		t.server.votedFor != e.from {
-		return replyTo(t, denyVote, e.from)
+		return true
 	}
-	if e.term < t.server.term ||
-		relativeLogStatus(t, e) == senderLessUpToDate {
-		return replyTo(t, denyVote, e.from)
+	if relativeLogStatus(t, e) == senderLessUpToDate {
+		return true
 	}
-	return t.applyMutations(
-		setVotedFor(e.from),
-		sendReplyTo(grantVote, e.from),
-		startElectionTimeout)
+	return false
 }
 
 func (t *transform) applyCandidateEvent(e *event) error {
-	if e.term > t.server.term {
-		return t.handleEventAsFollower(e, false)
+	if t.candidateShouldBecomeFollower(e) {
+		if err := t.transitionCandidateToFollower(e.term); err != nil {
+			return err
+		}
+		return t.applyEvent(e)
 	}
 	switch e.eventType {
 	case electionTimeout:
-		if e.term != t.server.term {
-			return nil
-		}
-		return t.applyMutations(startElection)
+		return t.handleElectionTimeout()
 	case voteGranted:
-		return t.applyMutations(
-			recordVote(e.from, true),
-			conditionally(
-				ifHasMajorityOfVotes,
-				becomeLeader,
-				sendHeartbeatRPCs,
-				startHeartbeatTimeout),
-		)
+		return t.handleVoteGranted(e)
 	case voteDenied:
-		return t.applyMutations(
-			recordVote(e.from, false),
-			conditionally(
-				ifMajorityVotedAgainst,
-				becomeFollower),
-		)
-	case appendEntries:
-		if e.term >= t.server.term {
-			return t.handleEventAsFollower(e, false)
-		}
-		return nil
+		return t.handleVoteDenied(e)
 	case voteRequest:
-		return replyTo(t, denyVote, e.from)
-	default:
+		return t.replyTo(denyVote, e.from)
+	}
+	return nil
+}
+
+func (t *transform) candidateShouldBecomeFollower(e *event) bool {
+	if e.term > t.server.term {
+		return true
+	}
+	return e.eventType == appendEntries &&
+		e.term >= t.server.term
+}
+
+func (t *transform) handleVoteDenied(e *event) error {
+	if err := t.server.recordVote(e.from, false); err != nil {
 		return nil
 	}
+	if !t.majorityVotedAgainst() {
+		return nil
+	}
+	return t.server.becomeFollower()
+}
+
+func (t *transform) handleVoteGranted(e *event) error {
+	if err := t.server.recordVote(e.from, true); err != nil {
+		return err
+	}
+	if !t.hasMajorityOfVotes() {
+		return nil
+	}
+	if err := t.server.becomeLeader(); err != nil {
+		return err
+	}
+	if err := t.addCommand(sendHeartbeat); err != nil {
+		return err
+	}
+	return t.addCommand(startHeartbeatTimer)
+}
+
+func (t *transform) transitionCandidateToFollower(tm term) error {
+	if err := t.server.becomeFollower(); err != nil {
+		return err
+	}
+	if err := t.matchTerm(tm); err != nil {
+		return err
+	}
+	return t.server.clearVoteHistory()
 }
 
 func (t *transform) applyLeaderEvent(e *event) error {
 	if e.term > t.server.term {
-		return t.handleEventAsFollower(e, true)
+		if err := t.transitionLeaderToFollower(e); err != nil {
+			return err
+		}
+		return t.applyEvent(e)
 	}
 	switch e.eventType {
 	case voteRequest:
-		return replyTo(t, denyVote, e.from)
+		return t.replyTo(denyVote, e.from)
 	}
 	return nil
 }
 
-func (t *transform) applyMutations(mutations ...mutation) error {
-	for _, mut := range mutations {
-		err := mut(t)
-		if err != nil {
-			return err
-		}
+func (t *transform) transitionLeaderToFollower(e *event) error {
+	if err := t.server.becomeFollower(); err != nil {
+		return err
+	}
+	if err := t.matchTerm(e.term); err != nil {
+		return err
+	}
+	if err := t.server.clearVoteHistory(); err != nil {
+		return err
+	}
+	if err := t.addCommand(startElectionTimer); err != nil {
+		return err
 	}
 	return nil
 }
 
-func (t *transform) handleEventAsFollower(e *event, startElectionTimer bool) error {
-	electionTimerFn := dontStartElectionTimeout
-	if startElectionTimer {
-		electionTimerFn = startElectionTimeout
-	}
-	return t.applyMutations(
-		becomeFollower,
-		matchTerm(e.term),
-		electionTimerFn,
-		clearVoteHistory,
-		recursivelyApplyEvent(e))
-}
-func matchTerm(term term) func(*transform) error {
-	return func(t *transform) error {
-		if term < t.server.term {
-			return fmt.Errorf("Can't decrease term")
-		}
-		t.server.term = term
-		return nil
-	}
-}
-func recursivelyApplyEvent(e *event) func(*transform) error {
-	return func(t *transform) error {
-		return t.applyEvent(e)
-	}
-}
-func becomeFollower(t *transform) error  { return t.server.becomeFollower() }
-func becomeCandidate(t *transform) error { return t.server.becomeCandidate() }
-func becomeLeader(t *transform) error    { return t.server.becomeLeader() }
-func incrementTerm(t *transform) error   { return t.server.incrementTerm() }
-func recordVote(serverId string, voteGranted bool) func(t *transform) error {
-	return func(t *transform) error {
-		return t.server.recordVote(serverId, voteGranted)
-	}
-}
-func clearVoteHistory(t *transform) error { return t.server.setVotingStatus("") }
-func setVotedFor(votedFor string) func(t *transform) error {
-	return func(t *transform) error {
-		return t.server.setVotingStatus(votedFor)
-	}
-}
-func startElection(t *transform) error {
-	return t.applyMutations(
-		incrementTerm,
-		sendVoteRequests,
-		startElectionTimeout)
-}
-func ifHasMajorityOfVotes(t *transform) (bool, error) {
+func (t *transform) hasMajorityOfVotes() bool {
 	votesNeeded := t.server.majority()
 	votesNeeded-- // implicit vote for self
 	if len(t.server.votes) < int(votesNeeded) {
-		return false, nil
+		return false
 	}
 	for _, v := range t.server.votes {
 		if v {
 			if votesNeeded <= 1 {
-				return true, nil
+				return true
 			}
 			votesNeeded--
 		}
 	}
-	return false, nil
+	return false
 }
-func ifMajorityVotedAgainst(t *transform) (bool, error) {
+func (t *transform) majorityVotedAgainst() bool {
 	votesNeeded := t.server.majority()
 	if len(t.server.votes) < int(votesNeeded) {
-		return false, nil
+		return false
 	}
 	for _, v := range t.server.votes {
 		if !v {
 			if votesNeeded <= 1 {
-				return true, nil
+				return true
 			}
 			votesNeeded--
 		}
 	}
-	return false, nil
+	return false
 }
 
 func (s *server) lastLogEntryStats() (logIndex, term) {
@@ -225,28 +238,6 @@ const (
 	senderMoreUpToDate
 	senderLessUpToDate
 )
-
-/*
-func relativeLogStatus(t *transform, e *event) senderLogStatus {
-	lastLogIndex, lastLogTerm := t.server.lastLogEntryStats()
-
-	switch {
-	case lastLogTerm != e.lastLogTerm:
-		if lastLogTerm < e.lastLogTerm {
-			return senderMoreUpToDate
-		}
-		return senderLessUpToDate
-	case lastLogIndex != e.lastLogIndex:
-		if lastLogIndex < e.lastLogIndex {
-			return senderMoreUpToDate
-		}
-		return senderLessUpToDate
-	default:
-		return senderAsUpToDate
-	}
-}
-
-*/
 
 func relativeLogStatus(t *transform, e *event) senderLogStatus {
 	lastLogIndex, lastLogTerm := t.server.lastLogEntryStats()
@@ -265,52 +256,13 @@ func relativeLogStatus(t *transform, e *event) senderLogStatus {
 	return senderAsUpToDate
 }
 
-func ifSenderIsAsUpToDateAsServer(t *transform, e *event) bool {
-	if e.term < t.server.term {
-		return false
-	}
-	lastLogIndex, lastLogTerm := t.server.lastLogEntryStats()
-	if lastLogTerm > e.lastLogTerm {
-		return false
-	}
-	if lastLogIndex > e.lastLogIndex {
-		return false
-	}
-	return true
+func (t *transform) addCommand(ct commandType) error {
+	return t.addCommandTo(ct, "")
 }
-
-func conditionally(
-	condition func(t *transform) (bool, error),
-	mutations ...mutation,
-) func(*transform) error {
-	return func(t *transform) error {
-		result, err := condition(t)
-		if err != nil {
-			return err
-		}
-		if result {
-			return t.applyMutations(mutations...)
-		}
-		return nil
-	}
+func (t *transform) replyTo(ct commandType, to string) error {
+	return t.addCommandTo(ct, to)
 }
-func sendVoteRequests(t *transform) error         { return addCommand(t, requestVotes) }
-func startElectionTimeout(t *transform) error     { return addCommand(t, startElectionTimer) }
-func dontStartElectionTimeout(t *transform) error { return nil }
-func sendHeartbeatRPCs(t *transform) error        { return addCommand(t, sendHeartbeat) }
-func startHeartbeatTimeout(t *transform) error    { return addCommand(t, startHeartbeatTimer) }
-func sendReplyTo(ct commandType, to string) func(*transform) error {
-	return func(t *transform) error {
-		return replyTo(t, ct, to)
-	}
-}
-func addCommand(t *transform, ct commandType) error {
-	return addCommandTo(t, ct, "")
-}
-func replyTo(t *transform, ct commandType, to string) error {
-	return addCommandTo(t, ct, to)
-}
-func addCommandTo(t *transform, ct commandType, to string) error {
+func (t *transform) addCommandTo(ct commandType, to string) error {
 	t.commands = append(t.commands, &command{
 		commandType: ct,
 		term:        t.server.term,

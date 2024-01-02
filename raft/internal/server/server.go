@@ -64,8 +64,15 @@ func (s *server) becomeLeader() error {
 }
 
 func (s *server) incrementTerm() error {
+	if s.term == MaxTerm {
+		return fmt.Errorf("max term reached")
+	}
 	s.term++
 	return nil
+}
+
+func (s *server) clearVoteHistory() error {
+	return s.setVotingStatus("")
 }
 
 func (s *server) setVotingStatus(votedFor string) error {

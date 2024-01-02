@@ -1,6 +1,11 @@
 package server
 
+import "math"
+
 type term uint64
+
+const MaxTerm = term(math.MaxUint64)
+
 type logIndex uint64
 
 type serverState int
