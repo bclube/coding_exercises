@@ -309,7 +309,7 @@ func (ctx *testScenario) serverHasAlreadyVoted(serverName string, not string) er
 	})
 }
 
-func (ctx *testScenario) itReceivesAnElectionTimeoutForTerm(serverId string) error {
+func (ctx *testScenario) receivesAnElectionTimeout(serverId string) error {
 	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
 		return applyEvent(s, &event{
 			eventType: electionTimeout,
@@ -317,8 +317,14 @@ func (ctx *testScenario) itReceivesAnElectionTimeoutForTerm(serverId string) err
 		})
 	})
 }
+
 func (ctx *testScenario) receivesAHeartbeatTimeout(serverId string) error {
-	return godog.ErrPending
+	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
+		return applyEvent(s, &event{
+			eventType: heartbeatTimeout,
+			term:      s.term,
+		})
+	})
 }
 
 func (ctx *testScenario) shouldSendCommand(serverName string, not string, ct commandType, msgAndArgs ...interface{}) error {
@@ -405,7 +411,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	ctx.Given(`^(\S+) has( not)? already voted in the current term$`, testScenario.serverHasAlreadyVoted)
 
 	ctx.When(`^a server starts up for the first time`, testScenario.bootstrapServer)
-	ctx.When(`^(\S+) receives an election timeout$`, testScenario.itReceivesAnElectionTimeoutForTerm)
+	ctx.When(`^(\S+) receives an election timeout$`, testScenario.receivesAnElectionTimeout)
 	ctx.When(`^(\S+) receives a heartbeat timeout$`, testScenario.receivesAHeartbeatTimeout)
 	ctx.When(`^(\S+) receives (\d+) votes (for|against)$`, testScenario.receivesVotes)
 	ctx.When(`^(\S+) observes a `+serverType+` of (?:the|an|a) (same|earlier|later) term$`, testScenario.observesAServerWithTerm)

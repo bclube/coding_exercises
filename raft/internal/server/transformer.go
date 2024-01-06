@@ -23,6 +23,17 @@ func applyEvent(s *server, e *event) (
 }
 
 func (t *transform) applyEvent(e *event) error {
+	if err := t.validateEvent(e); err != nil {
+		return err
+	}
+	if t.shouldIgnoreEvent(e) {
+		return nil
+	}
+	if t.shouldBecomeFollower(e) {
+		if err := t.becomeFollower(e); err != nil {
+			return err
+		}
+	}
 	switch t.server.state {
 	case follower:
 		return t.applyFollowerEvent(e)
@@ -30,17 +41,80 @@ func (t *transform) applyEvent(e *event) error {
 		return t.applyCandidateEvent(e)
 	case leader:
 		return t.applyLeaderEvent(e)
+	default:
+		return fmt.Errorf("unrecognized server state %d", t.server.state)
 	}
-	return fmt.Errorf("unrecognized server state %d", t.server.state)
+}
+
+func (t *transform) validateEvent(e *event) error {
+	if e.from == "" {
+		if e.eventType != electionTimeout && e.eventType != heartbeatTimeout {
+			return fmt.Errorf("event `from` field should contain valid value")
+		}
+	}
+	if e.term > t.server.term {
+		switch e.eventType {
+		case electionTimeout:
+			return fmt.Errorf("election timeout should not have higher term than server")
+		case heartbeatTimeout:
+			return fmt.Errorf("heartbeat timeout should not have higher term than server")
+		case voteGranted:
+			return fmt.Errorf("vote should never be granted from server with later term")
+		}
+	}
+	return nil
+}
+
+func (t *transform) shouldIgnoreEvent(e *event) bool {
+	if e.eventType == electionTimeout {
+		if t.server.state == leader {
+			return true
+		}
+		if t.server.term != e.term {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *transform) shouldBecomeFollower(e *event) bool {
+	if e.term > t.server.term {
+		return true
+	}
+	if e.eventType == appendEntries &&
+		e.term == t.server.term {
+		return true
+	}
+	return false
+}
+
+func (t *transform) becomeFollower(e *event) error {
+	if t.server.term < e.term {
+		t.server.term = e.term
+		if err := t.server.clearVoteHistory(); err != nil {
+			return err
+		}
+	}
+	if err := t.matchTerm(e.term); err != nil {
+		return err
+	}
+	if t.server.state == leader {
+		if err := t.startElectionTimer(); err != nil {
+			return nil
+		}
+	}
+	return t.server.becomeFollower()
+}
+
+func (t *transform) matchTerm(tm term) error {
+	if t.server.term >= tm {
+		return nil
+	}
+	t.server.term = tm
+	return t.server.clearVoteHistory()
 }
 
 func (t *transform) applyFollowerEvent(e *event) error {
-	if e.term > t.server.term {
-		if err := t.matchTerm(e.term); err != nil {
-			return err
-		}
-		return t.applyEvent(e)
-	}
 	switch e.eventType {
 	case electionTimeout:
 		return t.handleElectionTimeout()
@@ -60,32 +134,39 @@ func (t *transform) handleElectionTimeout() error {
 	if err := t.addCommand(requestVotes); err != nil {
 		return err
 	}
-	return t.addCommand(startElectionTimer)
+	return t.startElectionTimer()
 }
 
-func (t *transform) matchTerm(tm term) error {
-	if t.server.term >= tm {
-		return nil
+func (t *transform) startElectionTimer() error {
+	for _, cmd := range t.commands {
+		if cmd.commandType == startElectionTimer {
+			return nil
+		}
 	}
-	t.server.term = tm
-	return t.server.clearVoteHistory()
+	return t.addCommand(startElectionTimer)
 }
 
 func (t *transform) handleVoteRequest(e *event) error {
 	if t.shouldDenyVote(e) {
 		return t.replyTo(denyVote, e.from)
 	}
+	if t.server.votedFor == e.from {
+		return t.replyTo(grantVote, e.from)
+	}
 	if err := t.server.setVotingStatus(e.from); err != nil {
 		return err
 	}
-	if err := t.replyTo(grantVote, e.from); err != nil {
+	if err := t.startElectionTimer(); err != nil {
 		return err
 	}
-	return t.addCommand(startElectionTimer)
+	return t.replyTo(grantVote, e.from)
 }
 
 func (t *transform) shouldDenyVote(e *event) bool {
 	if e.term < t.server.term {
+		return true
+	}
+	if e.from == "" {
 		return true
 	}
 	if t.server.votedFor != "" &&
@@ -99,12 +180,6 @@ func (t *transform) shouldDenyVote(e *event) bool {
 }
 
 func (t *transform) applyCandidateEvent(e *event) error {
-	if t.candidateShouldBecomeFollower(e) {
-		if err := t.transitionCandidateToFollower(e.term); err != nil {
-			return err
-		}
-		return t.applyEvent(e)
-	}
 	switch e.eventType {
 	case electionTimeout:
 		return t.handleElectionTimeout()
@@ -118,22 +193,14 @@ func (t *transform) applyCandidateEvent(e *event) error {
 	return nil
 }
 
-func (t *transform) candidateShouldBecomeFollower(e *event) bool {
-	if e.term > t.server.term {
-		return true
-	}
-	return e.eventType == appendEntries &&
-		e.term >= t.server.term
-}
-
 func (t *transform) handleVoteDenied(e *event) error {
 	if err := t.server.recordVote(e.from, false); err != nil {
 		return nil
 	}
-	if !t.majorityVotedAgainst() {
-		return nil
+	if t.majorityVotedAgainst() {
+		return t.server.becomeFollower()
 	}
-	return t.server.becomeFollower()
+	return nil
 }
 
 func (t *transform) handleVoteGranted(e *event) error {
@@ -146,50 +213,24 @@ func (t *transform) handleVoteGranted(e *event) error {
 	if err := t.server.becomeLeader(); err != nil {
 		return err
 	}
+	return t.sendHeartbeat()
+}
+
+func (t *transform) applyLeaderEvent(e *event) error {
+	switch e.eventType {
+	case voteRequest:
+		return t.replyTo(denyVote, e.from)
+	case heartbeatTimeout:
+		return t.sendHeartbeat()
+	}
+	return nil
+}
+
+func (t *transform) sendHeartbeat() error {
 	if err := t.addCommand(sendHeartbeat); err != nil {
 		return err
 	}
 	return t.addCommand(startHeartbeatTimer)
-}
-
-func (t *transform) transitionCandidateToFollower(tm term) error {
-	if err := t.server.becomeFollower(); err != nil {
-		return err
-	}
-	if err := t.matchTerm(tm); err != nil {
-		return err
-	}
-	return t.server.clearVoteHistory()
-}
-
-func (t *transform) applyLeaderEvent(e *event) error {
-	if e.term > t.server.term {
-		if err := t.transitionLeaderToFollower(e); err != nil {
-			return err
-		}
-		return t.applyEvent(e)
-	}
-	switch e.eventType {
-	case voteRequest:
-		return t.replyTo(denyVote, e.from)
-	}
-	return nil
-}
-
-func (t *transform) transitionLeaderToFollower(e *event) error {
-	if err := t.server.becomeFollower(); err != nil {
-		return err
-	}
-	if err := t.matchTerm(e.term); err != nil {
-		return err
-	}
-	if err := t.server.clearVoteHistory(); err != nil {
-		return err
-	}
-	if err := t.addCommand(startElectionTimer); err != nil {
-		return err
-	}
-	return nil
 }
 
 func (t *transform) hasMajorityOfVotes() bool {

@@ -1,14 +1,22 @@
 package server
 
-import "fmt"
+import (
+	"fmt"
+)
 
-type server struct {
-	config   serverConfig
+type core struct {
 	state    serverState
 	term     term
 	votedFor string
-	votes    map[string]bool
-	log      []*logEntry
+}
+
+type server struct {
+	core
+	config serverConfig
+	votes  map[string]bool
+	//lastLogIndex logIndex
+	//lastLogTerm term
+	log []*logEntry
 }
 
 type logEntry struct {
@@ -16,8 +24,66 @@ type logEntry struct {
 	content []byte
 }
 
+type serverOptions struct {
+	serverCount   *uint8
+	startingState *serverState
+	startingTerm  *term
+}
+
 type serverConfig struct {
 	serverCount uint8
+}
+
+type Option func(*serverOptions) error
+
+func WithServerCount(serverCount uint8) Option {
+	return func(so *serverOptions) error {
+		if serverCount < 2 {
+			return fmt.Errorf("server count must be >= 2")
+		}
+		so.serverCount = &serverCount
+		return nil
+	}
+}
+
+func WithState(state serverState) Option {
+	return func(so *serverOptions) error {
+		so.startingState = &state
+		return nil
+	}
+}
+
+func WithTerm(term term) Option {
+	return func(so *serverOptions) error {
+		so.startingTerm = &term
+		return nil
+	}
+}
+
+func New(options ...Option) (*server, error) {
+	var o serverOptions
+	for _, opt := range options {
+		if err := opt(&o); err != nil {
+			return nil, err
+		}
+	}
+	serverCount := uint8(5)
+	if o.serverCount != nil {
+		serverCount = *o.serverCount
+	}
+	s, err := newServer(&serverConfig{
+		serverCount: serverCount,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if o.startingState != nil {
+		s.state = *o.startingState
+	}
+	if o.startingTerm != nil {
+		s.term = *o.startingTerm
+	}
+	return s, nil
 }
 
 func newServer(config *serverConfig) (*server, error) {
@@ -29,9 +95,11 @@ func newServer(config *serverConfig) (*server, error) {
 	}
 	return &server{
 		config: *config,
-		state:  follower,
-		term:   0,
-		votes:  map[string]bool{},
+		core: core{
+			state: follower,
+			term:  0,
+		},
+		votes: make(map[string]bool, config.serverCount),
 	}, nil
 }
 
@@ -39,14 +107,19 @@ func (s *server) majority() uint8 {
 	return s.config.serverCount/2 + 1
 }
 
-func (s *server) init() {
-	if s.votes == nil {
-		s.votes = map[string]bool{}
+func (s *server) clone() *server {
+	cpy := *s
+	cpy.votes = make(map[string]bool, cpy.config.serverCount)
+	for k, v := range s.votes {
+		cpy.votes[k] = v
 	}
-}
-
-func (s server) clone() *server {
-	return &s
+	cpy.log = make([]*logEntry, len(s.log))
+	// log entries can be shared since server never mutates them
+	copied := copy(cpy.log, s.log)
+	if copied < len(s.log) {
+		panic("unable to clone log")
+	}
+	return &cpy
 }
 
 func (s *server) becomeFollower() error {
@@ -90,263 +163,15 @@ func (s *server) recordVote(fromServer string, voteGranted bool) error {
 
 func bootstrap(config serverConfig) (*server, []*command) {
 	server := &server{
-		state:  follower,
-		term:   0,
 		config: config,
+		core: core{
+			state: follower,
+			term:  0,
+		},
+		votes: make(map[string]bool, config.serverCount),
 	}
-	server.init()
 	commands := []*command{
 		ResetElectionTimeout(0),
 	}
 	return server, commands
 }
-
-/*
-type logEntry struct {
-	Term    Term
-	Content *[]byte
-}
-
-type config struct {
-	Servers  map[ServerId]struct{}
-	Majority int
-}
-
-var _ server = (*followerState)(nil)
-
-type followerState struct {
-	config       config
-	id           ServerId
-	currentTerm  Term
-	log          []logEntry
-	commitIndex  LogIndex
-	lastLogIndex LogIndex
-	lastLogTerm  Term
-}
-
-func (s *followerState) init() (server, []command, error) {
-	return s, []command{
-		ResetElectionTimeout(s.id, 0),
-	}, nil
-}
-
-func (s *followerState) GoString() string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "Follower#%vt%v{", s.id, s.currentTerm)
-	fmt.Fprintf(&b, "commit index: %v", s.commitIndex)
-	fmt.Fprintf(&b, ",last applied: %v", s.lastLogIndex)
-	fmt.Fprintf(&b, "}")
-
-	return b.String()
-}
-
-func (s *followerState) HandleEvent(e event) (server, []command, error) {
-	if e.Term() < s.currentTerm {
-		return s.handleEarlierTermEvent(e)
-	}
-	switch e.Type() {
-	case ElectionTimeout:
-		newTerm := s.currentTerm + 1
-		return &candidateState{
-				id:           s.id,
-				currentTerm:  newTerm,
-				log:          s.log,
-				commitIndex:  s.commitIndex,
-				lastLogIndex: s.lastLogIndex,
-				lastLogTerm:  s.lastLogTerm,
-			},
-			[]command{
-				RequestVotes(s.id, newTerm, s.lastLogIndex, s.lastLogTerm),
-				ResetElectionTimeout(s.id, newTerm),
-			},
-			nil
-	default:
-		return nil, nil, fmt.Errorf("can't handle e %#v in state %#v", e, s)
-	}
-}
-
-func (s *followerState) handleEarlierTermEvent(e event) (server, []command, error) {
-	switch e.Type() {
-	case ElectionTimeout:
-		return noOp(s)
-	case VoteRequest:
-		return s, []command{DenyVoteRequest(s.id, s.currentTerm, e)}, nil
-	default:
-		return noOp(s)
-	}
-}
-
-func noOp(s server) (server, []command, error) {
-	return s, []command{}, nil
-}
-
-var _ server = (*candidateState)(nil)
-
-type candidateState struct {
-	config       config
-	id           ServerId
-	currentTerm  Term
-	log          []logEntry
-	commitIndex  LogIndex
-	lastLogIndex LogIndex
-	lastLogTerm  Term
-	votesFor     map[ServerId]struct{}
-	votesAgainst map[ServerId]struct{}
-}
-
-func (s *candidateState) GoString() string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "Candidate#%vt%v{", s.id, s.currentTerm)
-	fmt.Fprintf(&b, "commit index: %v", s.commitIndex)
-	fmt.Fprintf(&b, ",last applied: %v", s.lastLogIndex)
-	fmt.Fprintf(&b, "}")
-
-	return b.String()
-}
-
-func (s *candidateState) HandleEvent(e event) (server, []command, error) {
-	if e.Term() > s.currentTerm {
-		return s.becomeFollower().HandleEvent(e)
-	}
-	if e.Term() < s.currentTerm {
-		switch e.Type() {
-		case VoteRequest:
-			return s, []command{DenyVoteRequest(s.id, s.currentTerm, e)}, nil
-		case AppendEntries:
-			return s, []command{RejectAppendRequest(s.id, s.currentTerm, e)}, nil
-		default:
-			return noOp(s)
-		}
-	}
-	switch e.Type() {
-	case ElectionTimeout:
-		return s.startElection()
-	case VoteRequest:
-		return s, []command{DenyVoteRequest(s.id, s.currentTerm, e)}, nil
-	case VoteGranted:
-		return s.handleVoteResponse(e, true)
-	case VoteDenied:
-		return s.handleVoteResponse(e, false)
-	default:
-		return noOp(s)
-	}
-}
-
-func (s *candidateState) startElection() (server, []command, error) {
-	next := *s
-	next.currentTerm++
-	next.votesFor = map[ServerId]struct{}{s.id: struct{}{}}
-	next.votesAgainst = map[ServerId]struct{}{}
-	return &next,
-		[]command{
-			RequestVotes(next.id, next.currentTerm, next.lastLogIndex, next.lastLogTerm),
-			ResetElectionTimeout(next.id, next.currentTerm),
-		},
-		nil
-}
-
-func (s *candidateState) becomeFollower() *followerState {
-	return &followerState{
-		config:       s.config,
-		id:           s.id,
-		currentTerm:  s.currentTerm,
-		log:          s.log,
-		commitIndex:  s.commitIndex,
-		lastLogIndex: s.lastLogIndex,
-		lastLogTerm:  s.lastLogTerm,
-	}
-}
-
-func (s *candidateState) handleVoteResponse(e event, gotVote bool) (server, []command, error) {
-	if gotVote {
-		if _, ok := s.votesFor[e.SenderId()]; ok {
-			// duplicate vote, no change
-			return noOp(s)
-		}
-		if len(s.votesFor)+1 >= s.config.Majority {
-			// won vote
-			return s.becomeLeader().init()
-		}
-		next := s.clone()
-		next.votesFor[e.SenderId()] = struct{}{}
-		return next, []command{}, nil
-	}
-	if _, ok := s.votesAgainst[e.SenderId()]; ok {
-		// duplicate vote, no change
-		return noOp(s)
-	}
-	if len(s.votesAgainst)+1 >= s.config.Majority {
-		// majority voted against
-		return s.becomeFollower().init()
-	}
-	next := s.clone()
-	next.votesAgainst[e.SenderId()] = struct{}{}
-	return next, []command{}, nil
-}
-
-func (s *candidateState) clone() *candidateState {
-	dup := *s
-	dup.votesFor = map[ServerId]struct{}{}
-	for k, v := range s.votesFor {
-		dup.votesFor[k] = v
-	}
-	dup.votesAgainst = map[ServerId]struct{}{}
-	for k, v := range s.votesAgainst {
-		dup.votesAgainst[k] = v
-	}
-
-	return &dup
-}
-
-func (s *candidateState) becomeLeader() *leaderState {
-	return &leaderState{
-		config:       s.config,
-		id:           s.id,
-		currentTerm:  s.currentTerm,
-		log:          s.log,
-		commitIndex:  s.commitIndex,
-		lastLogIndex: s.lastLogIndex,
-		lastLogTerm:  s.lastLogTerm,
-		nextIndex:    make(map[ServerId]int, len(s.config.Servers)),
-		matchIndex:   make(map[ServerId]int, len(s.config.Servers)),
-	}
-}
-
-func (s *leaderState) init() (server, []command, error) {
-	return s, []command{
-		SendHeartbeat(s.id, s.currentTerm),
-		ResetHeartbeatTimeout(s.id, s.currentTerm),
-	}, nil
-}
-
-var _ server = (*leaderState)(nil)
-
-type leaderState struct {
-	config       config
-	id           ServerId
-	currentTerm  Term
-	log          []logEntry
-	commitIndex  LogIndex
-	lastLogIndex LogIndex
-	lastLogTerm  Term
-	nextIndex    map[ServerId]int
-	matchIndex   map[ServerId]int
-}
-
-func (s *leaderState) GoString() string {
-	var b strings.Builder
-
-	fmt.Fprintf(&b, "Leader#%vt%v{", s.id, s.currentTerm)
-	fmt.Fprintf(&b, "commit index: %v", s.commitIndex)
-	fmt.Fprintf(&b, ",last applied: %v", s.lastLogIndex)
-	fmt.Fprintf(&b, "}")
-
-	return b.String()
-}
-
-func (s *leaderState) HandleEvent(e event) (server, []command, error) {
-	return noOp(s)
-}
-*/

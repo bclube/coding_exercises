@@ -1,9 +1,12 @@
 package server
 
-import "math"
+import (
+	"math"
+)
 
 type term uint64
 
+const EarliestTerm = term(0)
 const MaxTerm = term(math.MaxUint64)
 
 type logIndex uint64
@@ -14,6 +17,10 @@ const (
 	follower serverState = iota
 	candidate
 	leader
+
+	__endOfServerState__
+
+	serverStateCount = int(__endOfServerState__)
 )
 
 type eventType int
@@ -24,6 +31,11 @@ const (
 	voteGranted
 	voteDenied
 	appendEntries
+	heartbeatTimeout
+
+	__endOfEventType__
+
+	eventTypeCount = int(__endOfEventType__)
 )
 
 type commandType int
