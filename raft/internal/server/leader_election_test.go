@@ -108,9 +108,10 @@ func (ctx *testScenario) theClusterHasServers(serverCount int) error {
 }
 
 func (ctx *testScenario) bootstrapServer() error {
-	server, commands := bootstrap(serverConfig{
-		serverCount: ctx.serverCount,
-	})
+	server, commands, err := BootstrapServer(ctx.serverCount)
+	if err != nil {
+		return err
+	}
 	return ctx.SetServer("bootstrappedServer", server, commands, true)
 }
 
@@ -119,28 +120,18 @@ func (ctx *testScenario) isAServerOfType(serverName string, serverType string) e
 	if err != nil {
 		return err
 	}
-	server, err := newServer(&serverConfig{
-		serverCount: ctx.serverCount,
-	})
-	if err != nil {
-		return err
-	}
-	switch ss {
-	case follower:
-		err = server.becomeFollower()
-	case candidate:
-		err = server.becomeCandidate()
-	case leader:
-		err = server.becomeLeader()
-	}
-	if err != nil {
-		return err
-	}
 	tm, err := parseRelativeTerm("default")
 	if err != nil {
 		return err
 	}
-	server.term = tm
+	server, err := New(
+		WithServerCount(ctx.serverCount),
+		WithState(ss),
+		WithTerm(tm),
+	)
+	if err != nil {
+		return err
+	}
 	return ctx.SetServer(serverName, server, nil, true)
 }
 
@@ -157,7 +148,7 @@ func (ctx *testScenario) receivesVotes(serverName string, voteCount int, forOrAg
 	}
 	for i := 0; i < voteCount; i++ {
 		err := ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
-			return applyEvent(s, &event{
+			return ApplyEvent(s, &event{
 				eventType: et,
 				term:      s.term,
 				from:      fmt.Sprintf("%d", rand.Uint64()),
@@ -189,7 +180,7 @@ func (ctx *testScenario) observesAServerWithTerm(serverName string, serverType s
 		return err
 	}
 	err = ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
-		return applyEvent(s, &event{
+		return ApplyEvent(s, &event{
 			eventType: et,
 			term:      tm,
 			from:      fmt.Sprintf("%d", rand.Uint64()),
@@ -207,13 +198,12 @@ func (ctx *testScenario) receivesAVoteRequest(serverName string, fromServer stri
 		if err != nil {
 			return nil, nil, err
 		}
-		lastLogIndex, lastLogTerm := from.lastLogEntryStats()
-		return applyEvent(s, &event{
+		return ApplyEvent(s, &event{
 			eventType:    voteRequest,
 			from:         fromServer,
 			term:         from.term,
-			lastLogIndex: lastLogIndex,
-			lastLogTerm:  lastLogTerm,
+			lastLogIndex: from.lastLogIndex,
+			lastLogTerm:  from.lastLogTerm,
 		})
 	})
 }
@@ -271,17 +261,15 @@ func (ctx *testScenario) serverIsAsUpToDateAs(serverName string, relativeLogStat
 			if other.term < this.term {
 				commonTerm = other.term
 			}
-			other.log = []*logEntry{
-				{term: commonTerm - 1},
-				{term: commonTerm - 1},
-				{term: commonTerm},
-				{term: commonTerm},
-			}
-			this.log = other.clone().log
+			other.lastLogIndex = 4
+			this.lastLogIndex = 4
+
+			other.lastLogTerm = commonTerm
+			this.lastLogTerm = commonTerm
 			if relativeLogStatus == "more" {
-				other.log = other.log[:len(other.log)-1]
+				other.lastLogIndex--
 			} else if relativeLogStatus == "less" {
-				this.log = this.log[:len(this.log)-1]
+				this.lastLogIndex--
 			}
 			return other, nil, nil
 		})
@@ -311,7 +299,7 @@ func (ctx *testScenario) serverHasAlreadyVoted(serverName string, not string) er
 
 func (ctx *testScenario) receivesAnElectionTimeout(serverId string) error {
 	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
-		return applyEvent(s, &event{
+		return ApplyEvent(s, &event{
 			eventType: electionTimeout,
 			term:      s.term,
 		})
@@ -320,7 +308,7 @@ func (ctx *testScenario) receivesAnElectionTimeout(serverId string) error {
 
 func (ctx *testScenario) receivesAHeartbeatTimeout(serverId string) error {
 	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
-		return applyEvent(s, &event{
+		return ApplyEvent(s, &event{
 			eventType: heartbeatTimeout,
 			term:      s.term,
 		})

@@ -67,13 +67,13 @@ Feature: leader election
     And Shadow <hasOrHasNotAlreadyVoted> in the current term
     When Shadow receives a vote request from Candy
     Then she should deny her vote to Candy
-    And she should not reset her election timer
+    And she <shouldOrShouldNot> reset her election timer
 
     Examples:
-      | anEarlierOrLaterOrSameTermAs | asUpToDateOrLess     | hasOrHasNotAlreadyVoted |
-      | an earlier term than         | as up-to-date as     | has not already voted   |
-      | a later term than            | less up-to-date than | has not already voted   |
-      | the same term as             | as up-to-date as     | has already voted       |
+      | anEarlierOrLaterOrSameTermAs | asUpToDateOrLess     | hasOrHasNotAlreadyVoted | shouldOrShouldNot |
+      | an earlier term than         | as up-to-date as     | has not already voted   | should not        |
+      | a later term than            | less up-to-date than | has not already voted   | should            |
+      | the same term as             | as up-to-date as     | has already voted       | should not        |
 
   Scenario: Candidate grants vote
     Given Scout is a candidate
@@ -90,12 +90,12 @@ Feature: leader election
     And Scout is <asUpToDateOrLess> Candy
     When Candy receives a vote request from Scout
     Then she should deny her vote to Scout
-    And she should not reset her election timer
+    And she <shouldOrShouldNot> reset her election timer
 
     Examples:
-      | theSameTermOrLaterThan | asUpToDateOrLess     |
-      |  the same term as      | as up-to-date as     |
-      |  a later term than     | less up-to-date than |
+      | theSameTermOrLaterThan | asUpToDateOrLess     | shouldOrShouldNot |
+      |  the same term as      | as up-to-date as     | should not        |
+      |  a later term than     | less up-to-date than | should            |
 
   Scenario: Leader grants vote
     Given Candy is of a later term than Rex

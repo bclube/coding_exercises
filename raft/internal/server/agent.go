@@ -9,7 +9,8 @@ type AgentConfig struct {
 }
 
 func NewAgent(config AgentConfig) (*Agent, error) {
-	server, err := newServer(&config.server)
+	server, err := New(
+		WithServerCount(config.server.serverCount))
 	if err != nil {
 		return nil, err
 	}

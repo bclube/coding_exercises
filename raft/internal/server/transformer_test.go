@@ -91,6 +91,8 @@ func buildTestData(
 	if err != nil {
 		return nil, nil, err
 	}
+	s.lastLogIndex = logIndex(serverLastLogIndex)
+	s.lastLogTerm = serverLastLogTerm
 	et := nthElement(eventTypes, whichEventType)
 	e := &event{
 		eventType:    et,
@@ -100,15 +102,13 @@ func buildTestData(
 		lastLogTerm:  eventLastLogTerm,
 	}
 
-	// raft log index is 1-based; a last log index of "0" means the log is empty
-	for i := 1; i < serverStateCount; i++ {
-		s.log = append(s.log, &logEntry{term: serverLastLogTerm})
-	}
-
 	return s, e, nil
 }
 
 func isNonsenseCase(s *server, e *event) bool {
+	if e.lastLogTerm > e.term {
+		return true
+	}
 	if e.from == "" {
 		if e.eventType != electionTimeout && e.eventType != heartbeatTimeout {
 			return true
@@ -117,6 +117,11 @@ func isNonsenseCase(s *server, e *event) bool {
 	if e.term > s.term {
 		switch e.eventType {
 		case electionTimeout, voteGranted, heartbeatTimeout:
+			return true
+		}
+	} else if e.term == s.term {
+		if s.state == leader &&
+			e.eventType == appendEntries {
 			return true
 		}
 	}
@@ -144,7 +149,7 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 		event %#v`, os, e)
 
 		cp := os.clone()
-		s, cmds, err := applyEvent(cp, e)
+		s, cmds, err := ApplyEvent(cp, e)
 
 		t.Logf(`
 		end %#v
@@ -162,12 +167,6 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, s.term, e.term, "server term should always increase to match the event term")
 		require.GreaterOrEqual(t, s.term, os.term, "server term should never decrease")
-		for i, logEntry := range s.log {
-			if i > 0 {
-				require.GreaterOrEqual(t, logEntry.term, s.log[i-1].term, "log entry terms should be in ascending order")
-			}
-			require.GreaterOrEqual(t, s.term, logEntry.term, "server term should always be greater than log entries")
-		}
 
 		if os.state == follower {
 			require.NotEqual(t, leader, s.state, "follower can not transition directly to leader")
@@ -212,7 +211,7 @@ func FuzzTestIdempotentTest(f *testing.F) {
 		event %#v`, os, e)
 
 		first := os.clone()
-		first, cmds1, err := applyEvent(first, e)
+		first, cmds1, err := ApplyEvent(first, e)
 
 		t.Logf(`
 		first %#v
@@ -222,7 +221,7 @@ func FuzzTestIdempotentTest(f *testing.F) {
 		require.NoError(t, err)
 
 		second := first.clone()
-		second, cmds2, err := applyEvent(second, e)
+		second, cmds2, err := ApplyEvent(second, e)
 
 		t.Logf(`
 		second %#v
