@@ -16,5 +16,7 @@ require (
 	github.com/spf13/cobra v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.8.4 // indirect
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
+	golang.org/x/tools v0.17.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

@@ -6,6 +6,14 @@
 	"image": "mcr.microsoft.com/devcontainers/go:1-1.21-bullseye",
 	"features": {
 		"ghcr.io/devcontainers/features/go:1": {}
+	},
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"GitHub.copilot",
+				"GitHub.copilot-chat"
+			]
+		}
 	}
 
 	// Features to add to the dev container. More info: https://containers.dev/features.

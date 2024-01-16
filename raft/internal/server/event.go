@@ -1,9 +1,9 @@
 package server
 
 type event struct {
-	from         string
-	eventType    eventType
 	term         term
+	eventType    eventType
+	from         string
 	lastLogIndex logIndex
 	lastLogTerm  term
 }

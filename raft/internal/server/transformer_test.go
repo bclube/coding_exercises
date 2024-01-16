@@ -2,43 +2,21 @@ package server
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-var allServerStates = func() (ss []serverState) {
-	for s := 0; s < serverStateCount; s++ {
-		ss = append(ss, serverState(s))
-	}
-	return
-}()
-var allEventTypes = func() (ets []eventType) {
-	for et := 0; et < eventTypeCount; et++ {
-		ets = append(ets, eventType(et))
-	}
-	return
-}()
-
-func nthElement[T any](slice []T, n int) T {
-	if n < 0 {
-		// -math.MinInt will overflow, so add one before negating
-		n = -(n + 1)
-	}
-	return slice[n%len(slice)]
-}
-
 func buildTestData(
 	clusterSize uint8,
 
-	serverStates []serverState,
-	whichState int,
+	whichState uint8,
 	serverTerm uint64,
 	serverLastLogIndex uint8,
 
-	eventTypes []eventType,
-	whichEventType int,
+	whichEventType uint8,
 	eventTerm uint64,
 	eventFrom string,
 	eventLastLogIndex uint8,
@@ -83,7 +61,7 @@ func buildTestData(
 		serverLastLogTerm = term(serverTerm)
 	}
 
-	st := nthElement(serverStates, whichState)
+	st := serverState(whichState % uint8(serverStateCount))
 	s, err := New(
 		WithServerCount((clusterSize%7)+2),
 		WithState(st),
@@ -93,7 +71,7 @@ func buildTestData(
 	}
 	s.lastLogIndex = logIndex(serverLastLogIndex)
 	s.lastLogTerm = serverLastLogTerm
-	et := nthElement(eventTypes, whichEventType)
+	et := eventType(whichEventType % uint8(eventTypeCount))
 	e := &event{
 		eventType:    et,
 		term:         term(eventTerm),
@@ -124,6 +102,20 @@ func isNonsenseCase(s *server, e *event) bool {
 			e.eventType == appendEntries {
 			return true
 		}
+		if s.state == candidate {
+			if v, exists := s.votes[e.from]; exists {
+				if e.eventType == voteGranted && !v {
+					return true
+				}
+				if e.eventType == voteDenied && v {
+					return true
+				}
+			}
+		}
+	}
+	if e.lastLogTerm > 0 &&
+		e.lastLogIndex == 0 {
+		return true
 	}
 	return false
 }
@@ -131,7 +123,7 @@ func isNonsenseCase(s *server, e *event) bool {
 func FuzzTestServerAndEventCombinations(f *testing.F) {
 	f.Fuzz(func(t *testing.T,
 		clusterSize uint8,
-		whichState, whichEventType int,
+		whichState, whichEventType uint8,
 		serverTerm, eventTerm uint64,
 		eventFrom string,
 		serverLastLogIndex, eventLastLogIndex,
@@ -139,8 +131,8 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 	) {
 		os, e, err := buildTestData(
 			clusterSize,
-			allServerStates, whichState, serverTerm, serverLastLogIndex,
-			allEventTypes, whichEventType, eventTerm, eventFrom, eventLastLogIndex,
+			whichState, serverTerm, serverLastLogIndex,
+			whichEventType, eventTerm, eventFrom, eventLastLogIndex,
 			relativeLastLogTerm)
 		require.NoError(t, err)
 
@@ -148,8 +140,8 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 		start %#v
 		event %#v`, os, e)
 
-		cp := os.clone()
-		s, cmds, err := ApplyEvent(cp, e)
+		s := os.clone()
+		cmds, err := ApplyEvent(s, e)
 
 		t.Logf(`
 		end %#v
@@ -159,14 +151,14 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 		// nonsense cases are generated due to the random nature of fuzz testing
 		if isNonsenseCase(os, e) {
 			require.Error(t, err, "should raise error for nonsense cases")
-			require.EqualValues(t, os, cp, "should not mutate state for nonsense cases")
-			require.Nil(t, s)
-			require.Nil(t, cmds)
+			require.EqualValues(t, os, s, "should not mutate state for nonsense cases")
+			require.Empty(t, cmds)
 			return
 		}
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, s.term, e.term, "server term should always increase to match the event term")
 		require.GreaterOrEqual(t, s.term, os.term, "server term should never decrease")
+		require.LessOrEqual(t, len(cmds), 2, "should never return more than two commands")
 
 		if os.state == follower {
 			require.NotEqual(t, leader, s.state, "follower can not transition directly to leader")
@@ -189,7 +181,7 @@ func secondEventOccurranceShouldBeIgnored(s *server, e *event) bool {
 func FuzzTestIdempotentTest(f *testing.F) {
 	f.Fuzz(func(t *testing.T,
 		clusterSize uint8,
-		whichState, whichEventType int,
+		whichState, whichEventType uint8,
 		serverTerm, eventTerm uint64,
 		eventFrom string,
 		serverLastLogIndex, eventLastLogIndex,
@@ -197,8 +189,8 @@ func FuzzTestIdempotentTest(f *testing.F) {
 	) {
 		os, e, err := buildTestData(
 			clusterSize,
-			allServerStates, whichState, serverTerm, serverLastLogIndex,
-			allEventTypes, whichEventType, eventTerm, eventFrom, eventLastLogIndex,
+			whichState, serverTerm, serverLastLogIndex,
+			whichEventType, eventTerm, eventFrom, eventLastLogIndex,
 			relativeLastLogTerm)
 		require.NoError(t, err)
 
@@ -211,7 +203,7 @@ func FuzzTestIdempotentTest(f *testing.F) {
 		event %#v`, os, e)
 
 		first := os.clone()
-		first, cmds1, err := ApplyEvent(first, e)
+		cmds1, err := ApplyEvent(first, e)
 
 		t.Logf(`
 		first %#v
@@ -221,7 +213,7 @@ func FuzzTestIdempotentTest(f *testing.F) {
 		require.NoError(t, err)
 
 		second := first.clone()
-		second, cmds2, err := ApplyEvent(second, e)
+		cmds2, err := ApplyEvent(second, e)
 
 		t.Logf(`
 		second %#v
@@ -235,7 +227,39 @@ func FuzzTestIdempotentTest(f *testing.F) {
 	})
 }
 
-func checkCommands(t *testing.T, os *server, e *event, cmds1, cmds2 []*command) {
+func FuzzSequenceOfEvents(f *testing.F) {
+	s, cmds, err := BootstrapServer(2)
+	require.NoError(f, err)
+	require.NotEmpty(f, cmds)
+	require.NotNil(f, s)
+	f.Fuzz(func(t *testing.T, reset uint, et uint, tm uint64, from string, llt uint64, lli uint64) {
+		if reset%1_000 == 0 {
+			s, cmds, err = BootstrapServer(2)
+			require.NoError(t, err)
+			require.NotEmpty(t, cmds)
+			require.NotNil(t, s)
+		}
+		e := &event{
+			eventType:    eventType(et % uint(eventTypeCount)),
+			term:         term(tm),
+			from:         from,
+			lastLogIndex: logIndex(lli),
+			lastLogTerm:  term(llt),
+		}
+		ss := s.clone()
+		nc, err := ApplyEvent(s, e)
+		if isNonsenseCase(ss, e) {
+			require.Error(t, err)
+			require.Empty(t, nc)
+			require.EqualValues(t, ss, s)
+		} else {
+			require.NoError(t, err)
+			require.LessOrEqual(t, len(nc), 2)
+		}
+	})
+}
+
+func checkCommands(t *testing.T, os *server, e *event, cmds1, cmds2 Commands) {
 	t.Helper()
 
 	if secondEventOccurranceShouldBeIgnored(os, e) {
@@ -247,7 +271,7 @@ func checkCommands(t *testing.T, os *server, e *event, cmds1, cmds2 []*command) 
 	require.EqualValues(t, cmds1, cmds2, "commands should be equal")
 }
 
-func removeElectionTimerEvents(cmds []*command) (results []*command) {
+func removeElectionTimerEvents(cmds Commands) (results Commands) {
 	for _, cmd := range cmds {
 		if cmd.commandType == startElectionTimer {
 			continue
@@ -257,7 +281,7 @@ func removeElectionTimerEvents(cmds []*command) (results []*command) {
 	return
 }
 
-type cmds []*command
+type cmds Commands
 
 func (cs cmds) GoString() string {
 	var sb strings.Builder
@@ -265,9 +289,373 @@ func (cs cmds) GoString() string {
 	fmt.Fprint(&sb, "cmds[")
 	for _, cmd := range cs {
 		fmt.Fprintf(&sb, `
-		%s%#v`, "\t", *cmd)
+		%s%#v`, "\t", cmd)
 	}
 	fmt.Fprint(&sb, "]")
 
 	return sb.String()
+}
+
+func TestFollowerReceivesVoteRequest(t *testing.T) {
+	testCases := []struct {
+		name string
+		termDiff,
+		lastLogIndexDiff,
+		lastLogTermDiff int
+		want commandType
+	}{
+		{"same everything", 0, 0, 0, grantVote},
+		{"candidate in later term", -1, 0, 0, grantVote},
+		{"candidate has larger last log index", 0, -1, 0, grantVote},
+		{"candidate has later last log term", 0, 0, -1, grantVote},
+		{"candidate in earlier term", 1, 0, 0, denyVote},
+		{"candidate has smaller last log index", 0, 1, 0, denyVote},
+		{"candidate has earlier last log term", 0, 0, 1, denyVote},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			s, err := New(
+				WithTerm(100),
+				WithLogStats(50, 80))
+			if err != nil {
+				require.NoError(t, err, "error building test data")
+				t.Fatal(err)
+			}
+			e := &event{
+				eventType:    voteRequest,
+				term:         s.term - term(testCase.termDiff),
+				from:         "candidate",
+				lastLogIndex: s.lastLogIndex - logIndex(testCase.lastLogIndexDiff),
+				lastLogTerm:  s.lastLogTerm - term(testCase.lastLogTermDiff),
+			}
+			wantTerm := s.term
+			if e.term > s.term {
+				wantTerm = e.term
+			}
+			cmds, err := ApplyEvent(s, e)
+			require.NoError(t, err)
+			require.Contains(t, cmds, command{
+				commandType: testCase.want,
+				term:        wantTerm,
+				to:          "candidate",
+			})
+		})
+	}
+
+}
+
+func BenchmarkFollowerElectionTimeout(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		c, _ := ApplyEvent(s, &e)
+		runtime.KeepAlive(c)
+	}
+}
+
+func BenchmarkFollowerElectionTimeout2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkCandidateElectionTimeout(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkCandidateElectionTimeout2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkServerGrantsVote(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType:    voteRequest,
+		from:         "candidate",
+		lastLogIndex: s.lastLogIndex,
+		lastLogTerm:  s.lastLogTerm,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term + 1
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkServerGrantsVote2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType:    voteRequest,
+		from:         "candidate",
+		lastLogIndex: s.lastLogIndex,
+		lastLogTerm:  s.lastLogTerm,
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term + 1
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkServerWinsElection(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(3),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteGranted,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkServerWinsElection2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(3),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteGranted,
+		from:      "x",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkServerLosesElection(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(2),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	s.votes["y"] = false
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkServerLosesElection2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(2),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	s.votes["y"] = false
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkCandidateObservesLeader(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: appendEntries,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkCandidateObservesLeader2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: appendEntries,
+		from:      "x",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
+}
+
+func BenchmarkCandidateObservesHigherTerm(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term + 1
+		_, _ = ApplyEvent(s, &e)
+	}
+}
+
+func BenchmarkCandidateObservesHigherTerm2(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+	var cmds Commands2
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term + 1
+		_, _ = ApplyEvent2(s, &e, &cmds)
+	}
 }

@@ -34,7 +34,7 @@ func (ctx *testScenario) TouchServer(serverName string) error {
 	return ctx.err
 }
 
-func (ctx *testScenario) SetServer(serverName string, server *server, commands []*command, setLastServer bool) error {
+func (ctx *testScenario) SetServer(serverName string, server *server, commands Commands, setLastServer bool) error {
 	name, err := ctx.serverName(serverName)
 	if err != nil {
 		return err
@@ -47,19 +47,21 @@ func (ctx *testScenario) SetServer(serverName string, server *server, commands [
 	return ctx.err
 }
 
-func (ctx *testScenario) UpdateServer(serverName string, setLastServer bool, fn func(*server) (*server, []*command, error)) error {
+type updateServerFn func(*server) (Commands, error)
+
+func (ctx *testScenario) UpdateServer(serverName string, setLastServer bool, fn updateServerFn) error {
 	server, prevCommands, err := ctx.GetServer(serverName, setLastServer)
 	if err != nil {
 		return err
 	}
-	s, cmds, err := fn(server)
+	cmds, err := fn(server)
 	if err != nil {
 		return err
 	}
-	return ctx.SetServer(serverName, s, append(prevCommands, cmds...), setLastServer)
+	return ctx.SetServer(serverName, server, append(prevCommands, cmds...), setLastServer)
 }
 
-func (ctx *testScenario) GetServer(serverName string, setLastServer bool) (*server, []*command, error) {
+func (ctx *testScenario) GetServer(serverName string, setLastServer bool) (*server, Commands, error) {
 	name, err := ctx.serverName(serverName)
 	if err != nil {
 		return nil, nil, err
@@ -81,7 +83,7 @@ type testScenario struct {
 	serverCount uint8
 	lastServer  string
 	servers     map[string]*server
-	commands    map[string][]*command
+	commands    map[string]Commands
 	err         error
 }
 
@@ -89,7 +91,7 @@ func newTestScenario() *testScenario {
 	return &testScenario{
 		serverCount: 5,
 		servers:     map[string]*server{},
-		commands:    map[string][]*command{},
+		commands:    map[string]Commands{},
 	}
 }
 
@@ -147,7 +149,7 @@ func (ctx *testScenario) receivesVotes(serverName string, voteCount int, forOrAg
 		return ctx.TouchServer(serverName)
 	}
 	for i := 0; i < voteCount; i++ {
-		err := ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
+		err := ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 			return ApplyEvent(s, &event{
 				eventType: et,
 				term:      s.term,
@@ -179,7 +181,7 @@ func (ctx *testScenario) observesAServerWithTerm(serverName string, serverType s
 	if err != nil {
 		return err
 	}
-	err = ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
+	err = ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 		return ApplyEvent(s, &event{
 			eventType: et,
 			term:      tm,
@@ -193,10 +195,10 @@ func (ctx *testScenario) observesAServerWithTerm(serverName string, serverType s
 }
 
 func (ctx *testScenario) receivesAVoteRequest(serverName string, fromServer string) error {
-	return ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 		from, _, err := ctx.GetServer(fromServer, false)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		return ApplyEvent(s, &event{
 			eventType:    voteRequest,
@@ -248,15 +250,15 @@ func (ctx *testScenario) serverHasReleativeTerm(serverName string, relativeTerm 
 	if err != nil {
 		return err
 	}
-	return ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 		s.term = tm
-		return s, nil, nil
+		return nil, nil
 	})
 }
 
 func (ctx *testScenario) serverIsAsUpToDateAs(serverName string, relativeLogStatus string, otherServer string) error {
-	return ctx.UpdateServer(serverName, true, func(this *server) (*server, []*command, error) {
-		return this, nil, ctx.UpdateServer(otherServer, false, func(other *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverName, true, func(this *server) (Commands, error) {
+		return nil, ctx.UpdateServer(otherServer, false, func(other *server) (Commands, error) {
 			commonTerm := this.term
 			if other.term < this.term {
 				commonTerm = other.term
@@ -271,13 +273,13 @@ func (ctx *testScenario) serverIsAsUpToDateAs(serverName string, relativeLogStat
 			} else if relativeLogStatus == "less" {
 				this.lastLogIndex--
 			}
-			return other, nil, nil
+			return nil, nil
 		})
 	})
 }
 
 func (ctx *testScenario) serverHasAlreadyVoted(serverName string, not string) error {
-	return ctx.UpdateServer(serverName, true, func(s *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 		switch s.state {
 		case follower:
 			var voteFor string
@@ -286,19 +288,19 @@ func (ctx *testScenario) serverHasAlreadyVoted(serverName string, not string) er
 			}
 			err := s.setVotingStatus(voteFor)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
-			return s, nil, nil
+			return nil, nil
 		case candidate:
-			return nil, nil, nil
+			return nil, nil
 		default:
-			return nil, nil, fmt.Errorf("can only set voting status for follower or candidate")
+			return nil, fmt.Errorf("can only set voting status for follower or candidate")
 		}
 	})
 }
 
 func (ctx *testScenario) receivesAnElectionTimeout(serverId string) error {
-	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverId, true, func(s *server) (Commands, error) {
 		return ApplyEvent(s, &event{
 			eventType: electionTimeout,
 			term:      s.term,
@@ -307,7 +309,7 @@ func (ctx *testScenario) receivesAnElectionTimeout(serverId string) error {
 }
 
 func (ctx *testScenario) receivesAHeartbeatTimeout(serverId string) error {
-	return ctx.UpdateServer(serverId, true, func(s *server) (*server, []*command, error) {
+	return ctx.UpdateServer(serverId, true, func(s *server) (Commands, error) {
 		return ApplyEvent(s, &event{
 			eventType: heartbeatTimeout,
 			term:      s.term,
@@ -343,7 +345,7 @@ func (ctx *testScenario) sentCommand(serverName string, predicate func(*server, 
 	}
 	found := false
 	for _, cmd := range commands {
-		if predicate(server, cmd) {
+		if predicate(server, &cmd) {
 			found = true
 			break
 		}
