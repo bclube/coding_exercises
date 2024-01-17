@@ -659,3 +659,157 @@ func BenchmarkCandidateObservesHigherTerm2(b *testing.B) {
 		_, _ = ApplyEvent2(s, &e, &cmds)
 	}
 }
+
+func BenchmarkCandidateObservesHigherTerm3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term + 1
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkFollowerElectionTimeout3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkCandidateElectionTimeout3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: electionTimeout,
+		from:      "",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkServerGrantsVote3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType:    voteRequest,
+		from:         "candidate",
+		lastLogIndex: s.lastLogIndex,
+		lastLogTerm:  s.lastLogTerm,
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		e.term = s.term + 1
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkServerWinsElection3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(3),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: voteGranted,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		//delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkServerLosesElection3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithServerCount(2),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	s.votes["y"] = false
+	e := event{
+		eventType: voteDenied,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		//delete(s.votes, "x")
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent3(s, &e)
+	}
+}
+
+func BenchmarkCandidateObservesLeader3(b *testing.B) {
+	b.ReportAllocs()
+	s, err := New(
+		WithState(candidate),
+		WithTerm(100),
+		WithLogStats(50, 80))
+	if err != nil {
+		b.Fatal(err)
+	}
+	e := event{
+		eventType: appendEntries,
+		from:      "x",
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		s.state = candidate
+		e.term = s.term
+		_, _ = ApplyEvent3(s, &e)
+	}
+}

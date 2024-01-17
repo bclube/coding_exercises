@@ -49,6 +49,17 @@ const (
 	startHeartbeatTimer
 )
 
+type CommandType2 uint8
+
+const (
+	StartElectionTimer2 CommandType2 = 1 << iota
+	RequestVotes2
+	GrantVote2
+	DenyVote2
+	SendHeartbeat2
+	StartHeartbeatTimer2
+)
+
 /*
 var _ heap.Interface = (*EventQueue)(nil)
 
