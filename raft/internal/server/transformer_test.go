@@ -18,7 +18,7 @@ func buildTestData(
 
 	whichEventType uint8,
 	eventTerm uint64,
-	eventFrom string,
+	eventFrom uint8,
 	eventLastLogIndex uint8,
 
 	relativeLastLogTerm uint8,
@@ -75,7 +75,7 @@ func buildTestData(
 	e := &event{
 		eventType:    et,
 		term:         term(eventTerm),
-		from:         eventFrom,
+		from:         serverId(eventFrom%MaxServerCount + 1),
 		lastLogIndex: logIndex(eventLastLogIndex),
 		lastLogTerm:  eventLastLogTerm,
 	}
@@ -87,7 +87,7 @@ func isNonsenseCase(s *server, e *event) bool {
 	if e.lastLogTerm > e.term {
 		return true
 	}
-	if e.from == "" {
+	if e.from == 0 {
 		if e.eventType != electionTimeout && e.eventType != heartbeatTimeout {
 			return true
 		}
@@ -103,18 +103,19 @@ func isNonsenseCase(s *server, e *event) bool {
 			return true
 		}
 		if s.state == candidate {
-			if v, exists := s.votes[e.from]; exists {
-				if e.eventType == voteGranted && !v {
-					return true
-				}
-				if e.eventType == voteDenied && v {
-					return true
-				}
+			if e.eventType == voteGranted && s.votesAgainst&(1<<e.from) != 0 {
+				return true
+			}
+			if e.eventType == voteDenied && s.votedFor&(1<<e.from) != 0 {
+				return true
 			}
 		}
 	}
 	if e.lastLogTerm > 0 &&
 		e.lastLogIndex == 0 {
+		return true
+	}
+	if e.from > MaxServerCount {
 		return true
 	}
 	return false
@@ -125,7 +126,7 @@ func FuzzTestServerAndEventCombinations(f *testing.F) {
 		clusterSize uint8,
 		whichState, whichEventType uint8,
 		serverTerm, eventTerm uint64,
-		eventFrom string,
+		eventFrom uint8,
 		serverLastLogIndex, eventLastLogIndex,
 		relativeLastLogTerm uint8,
 	) {
@@ -183,7 +184,7 @@ func FuzzTestIdempotentTest(f *testing.F) {
 		clusterSize uint8,
 		whichState, whichEventType uint8,
 		serverTerm, eventTerm uint64,
-		eventFrom string,
+		eventFrom uint8,
 		serverLastLogIndex, eventLastLogIndex,
 		relativeLastLogTerm uint8,
 	) {
@@ -232,7 +233,7 @@ func FuzzSequenceOfEvents(f *testing.F) {
 	require.NoError(f, err)
 	require.NotEmpty(f, cmds)
 	require.NotNil(f, s)
-	f.Fuzz(func(t *testing.T, reset uint, et uint, tm uint64, from string, llt uint64, lli uint64) {
+	f.Fuzz(func(t *testing.T, reset uint, et uint, tm uint64, from uint8, llt uint64, lli uint64) {
 		if reset%1_000 == 0 {
 			s, cmds, err = BootstrapServer(2)
 			require.NoError(t, err)
@@ -242,7 +243,7 @@ func FuzzSequenceOfEvents(f *testing.F) {
 		e := &event{
 			eventType:    eventType(et % uint(eventTypeCount)),
 			term:         term(tm),
-			from:         from,
+			from:         serverId(from%MaxServerCount + 1),
 			lastLogIndex: logIndex(lli),
 			lastLogTerm:  term(llt),
 		}
@@ -273,7 +274,7 @@ func checkCommands(t *testing.T, os *server, e *event, cmds1, cmds2 Commands) {
 
 func removeElectionTimerEvents(cmds Commands) (results Commands) {
 	for _, cmd := range cmds {
-		if cmd.commandType == startElectionTimer {
+		if cmd.commandType == StartElectionTimer {
 			continue
 		}
 		results = append(results, cmd)
@@ -304,13 +305,13 @@ func TestFollowerReceivesVoteRequest(t *testing.T) {
 		lastLogTermDiff int
 		want commandType
 	}{
-		{"same everything", 0, 0, 0, grantVote},
-		{"candidate in later term", -1, 0, 0, grantVote},
-		{"candidate has larger last log index", 0, -1, 0, grantVote},
-		{"candidate has later last log term", 0, 0, -1, grantVote},
-		{"candidate in earlier term", 1, 0, 0, denyVote},
-		{"candidate has smaller last log index", 0, 1, 0, denyVote},
-		{"candidate has earlier last log term", 0, 0, 1, denyVote},
+		{"same everything", 0, 0, 0, GrantVote},
+		{"candidate in later term", -1, 0, 0, GrantVote},
+		{"candidate has larger last log index", 0, -1, 0, GrantVote},
+		{"candidate has later last log term", 0, 0, -1, GrantVote},
+		{"candidate in earlier term", 1, 0, 0, DenyVote},
+		{"candidate has smaller last log index", 0, 1, 0, DenyVote},
+		{"candidate has earlier last log term", 0, 0, 1, DenyVote},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -324,7 +325,7 @@ func TestFollowerReceivesVoteRequest(t *testing.T) {
 			e := &event{
 				eventType:    voteRequest,
 				term:         s.term - term(testCase.termDiff),
-				from:         "candidate",
+				from:         5,
 				lastLogIndex: s.lastLogIndex - logIndex(testCase.lastLogIndexDiff),
 				lastLogTerm:  s.lastLogTerm - term(testCase.lastLogTermDiff),
 			}
@@ -337,7 +338,7 @@ func TestFollowerReceivesVoteRequest(t *testing.T) {
 			require.Contains(t, cmds, command{
 				commandType: testCase.want,
 				term:        wantTerm,
-				to:          "candidate",
+				to:          5,
 			})
 		})
 	}
@@ -354,7 +355,6 @@ func BenchmarkFollowerElectionTimeout(b *testing.B) {
 	}
 	e := event{
 		eventType: electionTimeout,
-		from:      "",
 	}
 
 	b.ResetTimer()
@@ -362,27 +362,6 @@ func BenchmarkFollowerElectionTimeout(b *testing.B) {
 		e.term = s.term
 		c, _ := ApplyEvent(s, &e)
 		runtime.KeepAlive(c)
-	}
-}
-
-func BenchmarkFollowerElectionTimeout2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType: electionTimeout,
-		from:      "",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.term = s.term
-		_, _ = ApplyEvent2(s, &e, &cmds)
 	}
 }
 
@@ -397,7 +376,6 @@ func BenchmarkCandidateElectionTimeout(b *testing.B) {
 	}
 	e := event{
 		eventType: electionTimeout,
-		from:      "",
 	}
 
 	b.ResetTimer()
@@ -406,29 +384,6 @@ func BenchmarkCandidateElectionTimeout(b *testing.B) {
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkCandidateElectionTimeout2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithState(candidate),
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType: electionTimeout,
-		from:      "",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.term = s.term
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkServerGrantsVote(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -439,7 +394,7 @@ func BenchmarkServerGrantsVote(b *testing.B) {
 	}
 	e := event{
 		eventType:    voteRequest,
-		from:         "candidate",
+		from:         5,
 		lastLogIndex: s.lastLogIndex,
 		lastLogTerm:  s.lastLogTerm,
 	}
@@ -450,30 +405,6 @@ func BenchmarkServerGrantsVote(b *testing.B) {
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkServerGrantsVote2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType:    voteRequest,
-		from:         "candidate",
-		lastLogIndex: s.lastLogIndex,
-		lastLogTerm:  s.lastLogTerm,
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		e.term = s.term + 1
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkServerWinsElection(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -485,42 +416,17 @@ func BenchmarkServerWinsElection(b *testing.B) {
 	}
 	e := event{
 		eventType: voteGranted,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		delete(s.votes, "x")
+		s.votesFor = 0
 		s.state = candidate
 		e.term = s.term
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkServerWinsElection2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithServerCount(3),
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType: voteGranted,
-		from:      "x",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		delete(s.votes, "x")
-		s.state = candidate
-		e.term = s.term
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkServerLosesElection(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -530,46 +436,20 @@ func BenchmarkServerLosesElection(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	s.votes["y"] = false
 	e := event{
 		eventType: voteDenied,
-		from:      "x",
+		from:      5,
 	}
 
+	votesAgainst := uint16(1 << 4)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		delete(s.votes, "x")
+		s.votesAgainst = votesAgainst
 		s.state = candidate
 		e.term = s.term
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkServerLosesElection2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithServerCount(2),
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	s.votes["y"] = false
-	e := event{
-		eventType: voteDenied,
-		from:      "x",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		delete(s.votes, "x")
-		s.state = candidate
-		e.term = s.term
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkCandidateObservesLeader(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -581,7 +461,7 @@ func BenchmarkCandidateObservesLeader(b *testing.B) {
 	}
 	e := event{
 		eventType: appendEntries,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
@@ -591,30 +471,6 @@ func BenchmarkCandidateObservesLeader(b *testing.B) {
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkCandidateObservesLeader2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithState(candidate),
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType: appendEntries,
-		from:      "x",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		s.state = candidate
-		e.term = s.term
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkCandidateObservesHigherTerm(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -626,7 +482,7 @@ func BenchmarkCandidateObservesHigherTerm(b *testing.B) {
 	}
 	e := event{
 		eventType: voteDenied,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
@@ -636,30 +492,6 @@ func BenchmarkCandidateObservesHigherTerm(b *testing.B) {
 		_, _ = ApplyEvent(s, &e)
 	}
 }
-
-func BenchmarkCandidateObservesHigherTerm2(b *testing.B) {
-	b.ReportAllocs()
-	s, err := New(
-		WithState(candidate),
-		WithTerm(100),
-		WithLogStats(50, 80))
-	if err != nil {
-		b.Fatal(err)
-	}
-	e := event{
-		eventType: voteDenied,
-		from:      "x",
-	}
-	var cmds Commands2
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		s.state = candidate
-		e.term = s.term + 1
-		_, _ = ApplyEvent2(s, &e, &cmds)
-	}
-}
-
 func BenchmarkCandidateObservesHigherTerm3(b *testing.B) {
 	b.ReportAllocs()
 	s, err := New(
@@ -671,14 +503,14 @@ func BenchmarkCandidateObservesHigherTerm3(b *testing.B) {
 	}
 	e := event{
 		eventType: voteDenied,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		s.state = candidate
 		e.term = s.term + 1
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -692,13 +524,12 @@ func BenchmarkFollowerElectionTimeout3(b *testing.B) {
 	}
 	e := event{
 		eventType: electionTimeout,
-		from:      "",
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.term = s.term
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -713,13 +544,12 @@ func BenchmarkCandidateElectionTimeout3(b *testing.B) {
 	}
 	e := event{
 		eventType: electionTimeout,
-		from:      "",
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.term = s.term
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -733,7 +563,7 @@ func BenchmarkServerGrantsVote3(b *testing.B) {
 	}
 	e := event{
 		eventType:    voteRequest,
-		from:         "candidate",
+		from:         5,
 		lastLogIndex: s.lastLogIndex,
 		lastLogTerm:  s.lastLogTerm,
 	}
@@ -741,7 +571,7 @@ func BenchmarkServerGrantsVote3(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		e.term = s.term + 1
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -756,15 +586,15 @@ func BenchmarkServerWinsElection3(b *testing.B) {
 	}
 	e := event{
 		eventType: voteGranted,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		//delete(s.votes, "x")
+		s.votesFor = 0
 		s.state = candidate
 		e.term = s.term
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -777,18 +607,18 @@ func BenchmarkServerLosesElection3(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	s.votes["y"] = false
 	e := event{
 		eventType: voteDenied,
-		from:      "x",
+		from:      5,
 	}
 
+	votesAgainst := uint16(1 << 4)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		//delete(s.votes, "x")
+		s.votesAgainst = votesAgainst
 		s.state = candidate
 		e.term = s.term
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }
 
@@ -803,13 +633,13 @@ func BenchmarkCandidateObservesLeader3(b *testing.B) {
 	}
 	e := event{
 		eventType: appendEntries,
-		from:      "x",
+		from:      5,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		s.state = candidate
 		e.term = s.term
-		_, _ = ApplyEvent3(s, &e)
+		_, _ = ApplyEventCore(s, &e)
 	}
 }

@@ -3,13 +3,17 @@ package server
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 )
 
 var ErrIgnoreEvent = errors.New("event can be ignored")
 
+const MaxServerCount = 9
+
 type core struct {
 	term         term
-	votedFor     string
+	id           serverId
+	votedFor     serverId
 	lastLogIndex logIndex
 	lastLogTerm  term
 	config       serverConfig
@@ -17,8 +21,9 @@ type core struct {
 
 type server struct {
 	core
-	state serverState
-	votes map[string]bool
+	state        serverState
+	votesFor     uint16
+	votesAgainst uint16
 }
 
 type logEntry struct {
@@ -42,9 +47,6 @@ type Option func(*serverOptions) error
 
 func WithServerCount(serverCount uint8) Option {
 	return func(so *serverOptions) error {
-		if serverCount < 2 {
-			return fmt.Errorf("server count must be >= 2")
-		}
 		so.serverCount = &serverCount
 		return nil
 	}
@@ -112,8 +114,11 @@ func New(options ...Option) (*server, error) {
 }
 
 func newServer(config serverConfig) (*server, error) {
-	if config.serverCount < 2 {
+	switch {
+	case config.serverCount < 2:
 		return nil, fmt.Errorf("server count must be >= 2")
+	case config.serverCount > MaxServerCount:
+		return nil, fmt.Errorf("server count must be <= %d", MaxServerCount)
 	}
 	return fromCore(core{config: config}), nil
 }
@@ -124,10 +129,6 @@ func (s *server) majority() uint8 {
 
 func (s *server) clone() *server {
 	cpy := *s
-	cpy.votes = make(map[string]bool, cpy.config.serverCount)
-	for k, v := range s.votes {
-		cpy.votes[k] = v
-	}
 	return &cpy
 }
 
@@ -172,28 +173,36 @@ const (
 	VoteDenied
 )
 
-func (s *server) ObserveVoteRequest(from string, tm term, lastLogIndex logIndex, lastLogTerm term) (
+type becameFollower bool
+
+const (
+	becameFollowerErr    becameFollower = false
+	didNotBecomeFollower                = false
+	didBecomeFollower                   = true
+)
+
+func (s *server) ObserveVoteRequest(from serverId, tm term, lastLogIndex logIndex, lastLogTerm term) (
 	VoteRequestReply,
-	bool, // became follower
+	becameFollower,
 	error,
 ) {
-	if from == "" {
-		return 0, false, errors.New("candidate name can not be empty string")
+	if from == 0 || from > MaxServerCount {
+		return VoteErr, becameFollowerErr, fmt.Errorf("server id must be > 0 and <= %d", MaxServerCount)
 	}
 	becameFollower, err := s.observerServerWithTerm(tm)
 	if err != nil {
-		return 0, becameFollower, err
+		return 0, becameFollowerErr, err
 	}
 	switch {
 	case tm < s.term:
-		return VoteDenied, false, nil
+		return VoteDenied, didNotBecomeFollower, nil
 	case s.state == candidate || s.state == leader:
-		return VoteDenied, false, nil
+		return VoteDenied, didNotBecomeFollower, nil
 	case s.votedFor == from:
-		return AlreadyVotedForThisCandidate, false, nil
-	case s.votedFor != "":
+		return AlreadyVotedForThisCandidate, didNotBecomeFollower, nil
+	case s.votedFor != 0:
 		// Already voted this term
-		return VoteDenied, false, nil
+		return VoteDenied, didNotBecomeFollower, nil
 	case s.lastLogTerm > lastLogTerm:
 		return VoteDenied, becameFollower, nil
 	case s.lastLogIndex > lastLogIndex:
@@ -204,31 +213,31 @@ func (s *server) ObserveVoteRequest(from string, tm term, lastLogIndex logIndex,
 }
 
 func (s *server) ObserveLeaderWithTerm(tm term) (
-	bool, // became follower
+	becameFollower,
 	error,
 ) {
 	if tm > s.term {
-		return true, s.becomeFollowerInTerm(tm)
+		return didBecomeFollower, s.becomeFollowerInTerm(tm)
 	}
 	if tm == s.term {
 		switch s.state {
 		case candidate:
-			return true, s.becomeFollowerInTerm(tm)
+			return didBecomeFollower, s.becomeFollowerInTerm(tm)
 		case leader:
-			return false, errors.New("there should never be two leaders with same term")
+			return becameFollowerErr, errors.New("there should never be two leaders with same term")
 		}
 	}
-	return false, nil
+	return didNotBecomeFollower, nil
 }
 
 func (s *server) observerServerWithTerm(tm term) (
-	bool, // became follower
+	becameFollower,
 	error,
 ) {
 	if tm > s.term {
-		return true, s.becomeFollowerInTerm(tm)
+		return didBecomeFollower, s.becomeFollowerInTerm(tm)
 	}
-	return false, nil
+	return didNotBecomeFollower, nil
 }
 
 func (s *server) becomeFollowerInTerm(tm term) error {
@@ -240,10 +249,17 @@ func (s *server) becomeFollowerInTerm(tm term) error {
 	return nil
 }
 
-func (s *server) setVotingStatus(votedFor string) error {
+func (s *server) setVotingStatus(votedFor serverId) error {
 	s.votedFor = votedFor
 	return nil
 }
+
+type voteResponse bool
+
+const (
+	voteFor     voteResponse = true
+	voteAgainst              = false
+)
 
 type voteResult int
 
@@ -253,38 +269,49 @@ const (
 	Lost
 )
 
-func (s *server) recordVote(fromServer string, tm term, voteReply VoteRequestReply) (bool, error) {
-	if fromServer == "" {
-		return false, fmt.Errorf("server name must not be blank")
+func (s *server) recordVote(fromServer serverId, tm term, voteReply voteResponse) (
+	becameFollower,
+	error,
+) {
+	if fromServer == 0 {
+		return becameFollowerErr, fmt.Errorf("server id must be > 0")
+	}
+	if fromServer > MaxServerCount {
+		return becameFollowerErr, fmt.Errorf("server id must be <= %d", MaxServerCount)
 	}
 	if tm < s.term {
-		return false, ErrIgnoreEvent
+		return becameFollowerErr, ErrIgnoreEvent
 	}
-	voteGranted := voteReply == VoteGranted
+	voteGranted := voteReply == voteFor
 	if tm > s.term {
 		if voteGranted {
-			return false, fmt.Errorf("should never be granted vote by server from higher term")
+			return becameFollowerErr, fmt.Errorf("should never be granted vote by server from higher term")
 		}
 		return s.observerServerWithTerm(tm)
 	}
 	if s.state != candidate {
-		return false, ErrIgnoreEvent
+		return becameFollowerErr, ErrIgnoreEvent
 	}
-	if value, exists := s.votes[fromServer]; exists {
-		if value != voteGranted {
-			return false, fmt.Errorf("can't apply a different vote from same server")
+	var serverIdMask uint16 = 1 << (fromServer - 1)
+	if voteGranted {
+		if s.votesAgainst&serverIdMask != 0 {
+			return becameFollowerErr, fmt.Errorf("can't apply a different vote from same server")
 		}
-		return false, ErrIgnoreEvent
+		s.votesFor |= serverIdMask
+	} else {
+		if s.votesFor&serverIdMask != 0 {
+			return becameFollowerErr, fmt.Errorf("can't apply a different vote from same server")
+		}
+		s.votesAgainst |= serverIdMask
 	}
-	s.votes[fromServer] = voteGranted
-	return false, nil
+	return didNotBecomeFollower, nil
 }
 
-func (s *server) VoteGranted(fromServer string, tm term) (
+func (s *server) VoteGranted(fromServer serverId, tm term) (
 	voteResult,
 	error,
 ) {
-	if _, err := s.recordVote(fromServer, tm, VoteGranted); err != nil {
+	if _, err := s.recordVote(fromServer, tm, voteFor); err != nil {
 		if err == ErrIgnoreEvent {
 			err = nil
 		}
@@ -294,11 +321,11 @@ func (s *server) VoteGranted(fromServer string, tm term) (
 	return voteResult, nil
 }
 
-func (s *server) VoteDenied(fromServer string, tm term) (
+func (s *server) VoteDenied(fromServer serverId, tm term) (
 	voteResult,
 	error,
 ) {
-	if becameFollower, err := s.recordVote(fromServer, tm, VoteDenied); err != nil || becameFollower {
+	if becameFollower, err := s.recordVote(fromServer, tm, voteAgainst); err != nil || becameFollower {
 		if err == ErrIgnoreEvent {
 			err = nil
 		}
@@ -309,29 +336,17 @@ func (s *server) VoteDenied(fromServer string, tm term) (
 }
 
 func (s *server) determineVoteResult() voteResult {
-	votesToTally := uint8(len(s.votes))
-	votesToLose := s.majority()
-	votesToWin := votesToLose - 1 // implicit vote for self
+	votesNeededToLose := int(s.majority())
 
-	for _, voteFor := range s.votes {
-		if votesToLose > votesToTally &&
-			votesToWin > votesToTally {
-			return Inconclusive
-		}
-		votesToTally--
-		if voteFor {
-			if votesToWin == 1 {
-				s.state = leader
-				return Won
-			}
-			votesToWin--
-		} else {
-			if votesToLose == 1 {
-				s.state = follower
-				return Lost
-			}
-			votesToLose--
-		}
+	if bits.OnesCount16(s.votesAgainst) >= votesNeededToLose {
+		s.state = follower
+		return Lost
+	}
+
+	votesNeededToWin := votesNeededToLose - 1 // implicit vote for self
+	if bits.OnesCount16(s.votesFor) >= votesNeededToWin {
+		s.state = leader
+		return Won
 	}
 	return Inconclusive
 }
@@ -340,14 +355,12 @@ func fromCore(core core) *server {
 	return &server{
 		core:  core,
 		state: follower,
-		votes: make(map[string]bool, core.config.serverCount),
 	}
 }
 
 func (s *server) reset() {
-	for k := range s.votes {
-		delete(s.votes, k)
-	}
 	s.state = follower
-	s.votedFor = ""
+	s.votedFor = 0
+	s.votesFor = 0
+	s.votesAgainst = 0
 }

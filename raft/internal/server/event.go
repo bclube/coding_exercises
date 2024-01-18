@@ -3,7 +3,7 @@ package server
 type event struct {
 	term         term
 	eventType    eventType
-	from         string
+	from         serverId
 	lastLogIndex logIndex
 	lastLogTerm  term
 }

@@ -13,6 +13,8 @@ type logIndex uint64
 
 type serverState int
 
+type serverId uint8
+
 const (
 	follower serverState = iota
 	candidate
@@ -38,26 +40,16 @@ const (
 	eventTypeCount = int(__endOfEventType__)
 )
 
-type commandType int
+type commandType uint8
 
 const (
-	startElectionTimer commandType = iota
-	requestVotes
-	grantVote
-	denyVote
-	sendHeartbeat
-	startHeartbeatTimer
-)
-
-type CommandType2 uint8
-
-const (
-	StartElectionTimer2 CommandType2 = 1 << iota
-	RequestVotes2
-	GrantVote2
-	DenyVote2
-	SendHeartbeat2
-	StartHeartbeatTimer2
+	NoEvents           commandType = 0
+	StartElectionTimer commandType = 1 << iota
+	RequestVotes
+	GrantVote
+	DenyVote
+	SendHeartbeat
+	StartHeartbeatTimer
 )
 
 /*

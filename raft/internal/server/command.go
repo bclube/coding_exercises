@@ -1,14 +1,14 @@
 package server
 
 type command struct {
-	commandType commandType
 	term        term
-	to          string
+	commandType commandType
+	to          serverId
 }
 
 func ResetElectionTimeout(term term) *command {
 	return &command{
-		commandType: startElectionTimer,
+		commandType: StartElectionTimer,
 		term:        term,
 	}
 }

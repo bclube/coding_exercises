@@ -2,7 +2,6 @@ package server
 
 import (
 	"fmt"
-	"math/rand"
 	"regexp"
 	"testing"
 
@@ -148,12 +147,16 @@ func (ctx *testScenario) receivesVotes(serverName string, voteCount int, forOrAg
 	if voteCount <= 0 {
 		return ctx.TouchServer(serverName)
 	}
-	for i := 0; i < voteCount; i++ {
+	for i := 1; i <= voteCount; i++ {
+		v := i
 		err := ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
+			if et == voteDenied {
+				v = int(s.config.serverCount) + 1 - v
+			}
 			return ApplyEvent(s, &event{
 				eventType: et,
 				term:      s.term,
-				from:      fmt.Sprintf("%d", rand.Uint64()),
+				from:      serverId(v),
 			})
 		})
 		if err != nil {
@@ -185,7 +188,7 @@ func (ctx *testScenario) observesAServerWithTerm(serverName string, serverType s
 		return ApplyEvent(s, &event{
 			eventType: et,
 			term:      tm,
-			from:      fmt.Sprintf("%d", rand.Uint64()),
+			from:      5,
 		})
 	})
 	if err != nil {
@@ -202,7 +205,7 @@ func (ctx *testScenario) receivesAVoteRequest(serverName string, fromServer stri
 		}
 		return ApplyEvent(s, &event{
 			eventType:    voteRequest,
-			from:         fromServer,
+			from:         5,
 			term:         from.term,
 			lastLogIndex: from.lastLogIndex,
 			lastLogTerm:  from.lastLogTerm,
@@ -282,9 +285,9 @@ func (ctx *testScenario) serverHasAlreadyVoted(serverName string, not string) er
 	return ctx.UpdateServer(serverName, true, func(s *server) (Commands, error) {
 		switch s.state {
 		case follower:
-			var voteFor string
+			var voteFor serverId
 			if not == "" {
-				voteFor = "already-voted"
+				voteFor = 4
 			}
 			err := s.setVotingStatus(voteFor)
 			if err != nil {
@@ -356,8 +359,8 @@ func (ctx *testScenario) sentCommand(serverName string, predicate func(*server, 
 
 func (ctx *testScenario) shouldGrantVote(serverName string, grantOrDeny string, recipient string) error {
 	ct, valid := map[string]commandType{
-		"grant": grantVote,
-		"deny":  denyVote,
+		"grant": GrantVote,
+		"deny":  DenyVote,
 	}[grantOrDeny]
 	if !valid {
 		return fmt.Errorf("invalid vote specification %#v", grantOrDeny)
@@ -365,24 +368,24 @@ func (ctx *testScenario) shouldGrantVote(serverName string, grantOrDeny string, 
 	return ctx.sentCommand(serverName, func(s *server, c *command) bool {
 		return c.commandType == ct &&
 			c.term == s.term &&
-			c.to == recipient
+			c.to == 5
 	}, "did not %s vote to %#v", grantOrDeny, recipient)
 }
 
 func (ctx *testScenario) shouldSendHeartbeatRPCs(serverName string, not string) error {
-	return ctx.shouldSendCommand(serverName, not, sendHeartbeat, "should%s send heartbeats", not)
+	return ctx.shouldSendCommand(serverName, not, SendHeartbeat, "should%s send heartbeats", not)
 }
 
 func (ctx *testScenario) shouldSendVoteRequestRPCs(serverName string, not string) error {
-	return ctx.shouldSendCommand(serverName, not, requestVotes, "should%s send vote requests", not)
+	return ctx.shouldSendCommand(serverName, not, RequestVotes, "should%s send vote requests", not)
 }
 
 func (ctx *testScenario) startElectionTimer(serverName string, not string) error {
-	return ctx.shouldSendCommand(serverName, not, startElectionTimer, "should%s start election timer", not)
+	return ctx.shouldSendCommand(serverName, not, StartElectionTimer, "should%s start election timer", not)
 }
 func (ctx *testScenario) startHeartbeatTimer(serverName string) error {
 	return ctx.sentCommand(serverName, func(s *server, c *command) bool {
-		return c.commandType == startHeartbeatTimer &&
+		return c.commandType == StartHeartbeatTimer &&
 			c.term == s.term
 	}, "did not start heartbeat timer")
 }
