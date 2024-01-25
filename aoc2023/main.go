@@ -1,53 +1,118 @@
 package main
 
 import (
+	"aoc2023/common"
+	"aoc2023/day01"
 	"context"
 	"fmt"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
-func setupSignalHandler(ctx context.Context, cancel context.CancelFunc, wg *sync.WaitGroup) {
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		select {
-		case <-sigs:
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
+type waiter interface {
+	Wait() error
 }
 
-func waitWithTimeout(wg *sync.WaitGroup, timeout time.Duration) {
-	done := make(chan struct{})
+func withTermSignalMonitor(ctx context.Context) (
+	context.Context,
+	common.GroupFn,
+) {
+	ctx, cancel := context.WithCancel(ctx)
+
+	fn := func() error {
+		sigs := make(chan os.Signal, 1)
+		defer close(sigs)
+
+		signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(sigs)
+
+		select {
+		case sig := <-sigs:
+			cancel()
+			fmt.Println("\n\t*** received termination signal:", sig, "***")
+		case <-ctx.Done():
+		}
+
+		return nil
+	}
+	return ctx, fn
+}
+
+func waitWithTimeout(
+	ctx context.Context,
+	w waiter,
+	timeout time.Duration,
+) error {
+	waitResult := make(chan error)
 	go func() {
-		defer close(done)
-		wg.Wait()
+		defer close(waitResult)
+		waitResult <- w.Wait()
 	}()
 
 	select {
-	case <-done:
-	case <-time.After(timeout):
-		fmt.Printf("!!! forced shutdown after %v\n", timeout)
+	case err := <-waitResult:
+		return err
+	case <-ctx.Done():
+	}
+
+	graceTimer := time.After(1 * time.Second)
+	forcedShutdownTimer := time.After(timeout)
+
+	select {
+	case err := <-waitResult:
+		return err
+	case <-graceTimer:
+		fmt.Println("\t*** attempting graceful shutdown")
+	case <-forcedShutdownTimer:
+		return fmt.Errorf("forced shutdown after %v", timeout)
+	}
+
+	select {
+	case err := <-waitResult:
+		return err
+	case <-forcedShutdownTimer:
+		return fmt.Errorf("forced shutdown after %v", timeout)
 	}
 }
 
 func main() {
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithCancel(context.Background())
-	defer func() {
-		cancel()
-		waitWithTimeout(&wg, 5*time.Second)
-	}()
+	ctx, done := context.WithCancel(context.Background())
+	ctx, termMonitorFn := withTermSignalMonitor(ctx)
+	g, ctx := errgroup.WithContext(ctx)
 
-	setupSignalHandler(ctx, cancel, &wg)
+	g.Go(termMonitorFn)
+	firstResult := make(chan string)
+	g.Go(func() error {
+		defer close(firstResult)
+		result, err := day01.SolveA(ctx)
+		if err != nil {
+			return err
+		}
+		firstResult <- fmt.Sprintf("%#v", result)
+		return nil
+	})
+	secondResult := make(chan string)
+	g.Go(func() error {
+		defer close(secondResult)
+		result, err := day01.SolveB(ctx)
+		if err != nil {
+			return err
+		}
+		secondResult <- fmt.Sprintf("%#v", result)
+		return nil
+	})
+	g.Go(func() error {
+		defer done()
+		fmt.Println("solution A:", <-firstResult)
+		fmt.Println("solution B:", <-secondResult)
+		return nil
+	})
 
-	fmt.Println("Hello, world")
+	if err := waitWithTimeout(ctx, g, 2*time.Second); err != nil {
+		fmt.Printf("!!! error: %v\n", err)
+	}
 }

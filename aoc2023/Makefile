@@ -1,4 +1,9 @@
 run:
 	go run ./...
 
-.PHONY: run
+test:
+	go test ./...
+
+.PHONY: \
+run \
+test
