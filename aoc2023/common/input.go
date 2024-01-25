@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/pkg/errors"
 )
 
 func LinesFromString(ctx context.Context, text string) (<-chan string, GroupFn) {
@@ -38,10 +40,10 @@ func LinesFromFile(ctx context.Context, fileName string) (
 
 	fn := func() (e error) {
 		defer close(out)
-		path := filepath.Join("/workspaces/coding_exercises/aoc2023", fileName)
+		path := filepath.Join("/workspaces/coding_exercises/aoc2023/input", fileName)
 		file, err := os.Open(path)
 		if err != nil {
-			return err
+			return errors.WithStack(err)
 		}
 		defer func() {
 			err := file.Close()

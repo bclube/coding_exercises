@@ -1,4 +1,4 @@
-package day01
+package solution
 
 import (
 	"aoc2023/common"
@@ -13,7 +13,7 @@ import (
 func solve(ctx context.Context, extractFn func(context.Context, string) (int, error)) (int, error) {
 	g, ctx := errgroup.WithContext(ctx)
 
-	lines, readFn := common.LinesFromFile(ctx, "day01/input.txt")
+	lines, readFn := common.LinesFromFile(ctx, "day01.txt")
 	g.Go(readFn)
 	calibrationValues, mapFn := common.MapValues(ctx, lines, extractFn)
 	g.Go(mapFn)
@@ -26,11 +26,11 @@ func solve(ctx context.Context, extractFn func(context.Context, string) (int, er
 	return sum, g.Wait()
 }
 
-func SolveA(ctx context.Context) (int, error) {
+func SolveDay01A(ctx context.Context) (int, error) {
 	return solve(ctx, ExtractCalibrationValue)
 }
 
-func SolveB(ctx context.Context) (int, error) {
+func SolveDay01B(ctx context.Context) (int, error) {
 	return solve(ctx, ExtractCalibrationValueV2)
 }
 

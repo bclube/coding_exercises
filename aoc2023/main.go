@@ -2,7 +2,7 @@ package main
 
 import (
 	"aoc2023/common"
-	"aoc2023/day01"
+	"aoc2023/solution"
 	"context"
 	"fmt"
 	"os"
@@ -88,7 +88,7 @@ func main() {
 	firstResult := make(chan string)
 	g.Go(func() error {
 		defer close(firstResult)
-		result, err := day01.SolveA(ctx)
+		result, err := solution.SolveDay01A(ctx)
 		if err != nil {
 			return err
 		}
@@ -98,7 +98,7 @@ func main() {
 	secondResult := make(chan string)
 	g.Go(func() error {
 		defer close(secondResult)
-		result, err := day01.SolveB(ctx)
+		result, err := solution.SolveDay01B(ctx)
 		if err != nil {
 			return err
 		}
@@ -113,6 +113,6 @@ func main() {
 	})
 
 	if err := waitWithTimeout(ctx, g, 2*time.Second); err != nil {
-		fmt.Printf("!!! error: %v\n", err)
+		fmt.Printf("!!! error: %+v\n", err)
 	}
 }

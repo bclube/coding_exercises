@@ -1,7 +1,7 @@
-package day01_test
+package solution_test
 
 import (
-	"aoc2023/day01"
+	"aoc2023/solution"
 	"context"
 	"testing"
 
@@ -42,7 +42,7 @@ func TestExtractCalibrationValue(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := day01.ExtractCalibrationValue(context.Background(), tt.line)
+			got, err := solution.ExtractCalibrationValue(context.Background(), tt.line)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
@@ -111,7 +111,7 @@ func TestExtractCalibrationValueV2(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := day01.ExtractCalibrationValueV2(context.Background(), tt.line)
+			got, err := solution.ExtractCalibrationValueV2(context.Background(), tt.line)
 			if tt.wantErr {
 				require.Error(t, err)
 			} else {
