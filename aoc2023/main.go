@@ -46,36 +46,37 @@ func waitWithTimeout(
 	ctx context.Context,
 	w waiter,
 	timeout time.Duration,
-) error {
+) (err error) {
 	waitResult := make(chan error)
 	go func() {
 		defer close(waitResult)
 		waitResult <- w.Wait()
 	}()
 
-	select {
-	case err := <-waitResult:
-		return err
-	case <-ctx.Done():
-	}
+	done := ctx.Done()
+	var graceTimer <-chan time.Time
+	var forcedShutdownTimer <-chan time.Time
 
-	graceTimer := time.After(1 * time.Second)
-	forcedShutdownTimer := time.After(timeout)
-
-	select {
-	case err := <-waitResult:
-		return err
-	case <-graceTimer:
-		fmt.Println("\t*** attempting graceful shutdown")
-	case <-forcedShutdownTimer:
-		return fmt.Errorf("forced shutdown after %v", timeout)
-	}
-
-	select {
-	case err := <-waitResult:
-		return err
-	case <-forcedShutdownTimer:
-		return fmt.Errorf("forced shutdown after %v", timeout)
+	for {
+		select {
+		case <-done:
+			done = nil
+			graceTimer = time.After(1 * time.Second)
+			forcedShutdownTimer = time.After(timeout)
+		case err = <-waitResult:
+			return
+		case <-graceTimer:
+			graceTimer = nil
+			fmt.Println("\t*** attempting graceful shutdown")
+		case <-forcedShutdownTimer:
+			if err == nil {
+				err = ctx.Err()
+			}
+			if err != nil {
+				return fmt.Errorf("forced shutdown after %v: %w", timeout, err)
+			}
+			return fmt.Errorf("forced shutdown after %v", timeout)
+		}
 	}
 }
 
@@ -86,23 +87,16 @@ func main() {
 
 	g.Go(termMonitorFn)
 	firstResult := make(chan string)
+	secondResult := make(chan string)
 	g.Go(func() error {
 		defer close(firstResult)
-		result, err := solution.SolveDay01A(ctx)
+		defer close(secondResult)
+		result, resultB, err := solution.SolveDay02(ctx)
 		if err != nil {
 			return err
 		}
 		firstResult <- fmt.Sprintf("%#v", result)
-		return nil
-	})
-	secondResult := make(chan string)
-	g.Go(func() error {
-		defer close(secondResult)
-		result, err := solution.SolveDay01B(ctx)
-		if err != nil {
-			return err
-		}
-		secondResult <- fmt.Sprintf("%#v", result)
+		secondResult <- fmt.Sprintf("%#v", resultB)
 		return nil
 	})
 	g.Go(func() error {
