@@ -87,22 +87,18 @@ func main() {
 
 	g.Go(termMonitorFn)
 	firstResult := make(chan string)
-	secondResult := make(chan string)
 	g.Go(func() error {
 		defer close(firstResult)
-		defer close(secondResult)
-		result, resultB, err := solution.SolveDay02(ctx)
+		result, err := solution.SolveDay03(ctx)
 		if err != nil {
 			return err
 		}
 		firstResult <- fmt.Sprintf("%#v", result)
-		secondResult <- fmt.Sprintf("%#v", resultB)
 		return nil
 	})
 	g.Go(func() error {
 		defer done()
-		fmt.Println("solution A:", <-firstResult)
-		fmt.Println("solution B:", <-secondResult)
+		fmt.Println("solution:", <-firstResult)
 		return nil
 	})
 
