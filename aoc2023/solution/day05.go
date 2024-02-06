@@ -109,10 +109,6 @@ type resourceRange struct {
 	end   int
 }
 
-func (r resourceRange) empty() bool {
-	return r.end <= r.begin
-}
-
 type resourceMap struct {
 	begin int
 	end   int
