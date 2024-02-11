@@ -89,7 +89,7 @@ func main() {
 	firstResult := make(chan string)
 	g.Go(func() error {
 		defer close(firstResult)
-		result, err := solution.SolveDay11(ctx)
+		result, err := solution.SolveDay12(ctx)
 		if err != nil {
 			return err
 		}
