@@ -30,6 +30,29 @@ func ReadAllLines(ctx context.Context, fileName string) ([]string, error) {
 	return result, scanner.Err()
 }
 
+func ReadByteGrid(ctx context.Context, fileName string) ([][]byte, error) {
+	file, err := os.Open(filePath(fileName))
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	result := make([][]byte, 0, 200)
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+		line := scanner.Bytes()
+		lineCopy := make([]byte, len(line))
+		copy(lineCopy, line)
+		result = append(result, lineCopy)
+	}
+
+	return result, scanner.Err()
+}
+
 func filePath(fileName string) string {
 	return filepath.Join("/workspaces/coding_exercises/aoc2023/input", fileName)
 }
