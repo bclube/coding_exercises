@@ -6,7 +6,7 @@ fmt:
 vet: fmt
 	go vet ./...
 
-run: vet
+run:
 	go run ./...
 
 test:
