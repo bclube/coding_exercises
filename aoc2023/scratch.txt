@@ -1,27 +1,62 @@
-256_000_000_000_000
-167_409_079_868_000
+% Flip-flop:
+start: 0
+| state | input | next | output |
+| 0     | 0     | 1    | 1      |
+| 0     | 1     | -    | -      |
+| 1     | 0     | 0    | 0      |
+| 1     | 1     | -    | -      |
+state  => input == 0 ? !state : state
+output => input == 0 ? !state : nil
 
-processed by step : x------------x
-range :                     x---------------x
-processed :                 x----x
-left :                           x----------x
 
-processed by step : x-----------------------x
-range :                     x----x
-processed :                 x----x
-left :                           x
 
-processed by step : x------------x
-range :                              x-------------x
-processed :                      x
-left :                               x-------------x
+& Conjunction:
+start: 0
+| state | input | next | output |
+| 0     | 0     | 0    | 1      |
+| 0     | 1     | 1    | 1      |
+| 1     | 0     | 0    | 1      |
+| 1     | 1     | 1    | 0      |
+state  => input
+output => !(input && state)
 
-processed by step : x------------x
-range :                     x---------------x
-processed :                 x----x
-left :                           x----------x
 
-processed by step : x---------x
-range :             x---------------x
-processed :         x---------x
-left :                        x-----x
+conj
+A
+b
+c
+d
+
+flip
+
+
+3851
+
+
+broadcaster -> mn
+1111 0011 0001 -> 3889
+1111 0011 0010
+1111 0011 1010
+1111 0011 1110
+1111 0111 1110
+0000 0000 0000
+
+broadcaster -> xc
+1111 1110 1111 -> 4079
+1111 1111 1111
+0000 0000 0000
+
+broadcaster -> pl
+1111 0000 1011 -> 3851
+1111 1000 1011
+1111 1001 1011
+1111 1011 1011
+1111 1011 1111
+1111 1100 0000
+0000 0000 0000
+
+broadcaster -> xr
+1111 1011 1011 -> 4027
+1111 1011 1111
+1111 1111 1111
+0000 0000 0000

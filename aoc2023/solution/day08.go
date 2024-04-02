@@ -6,8 +6,15 @@ import (
 	"fmt"
 )
 
-func lcm(a, b int) int {
-	return a * b / gcd(a, b)
+func lcm(numbers ...int) int {
+	if len(numbers) == 0 {
+		return 0
+	}
+	result := numbers[0]
+	for _, n := range numbers[1:] {
+		result *= n / gcd(result, n)
+	}
+	return result
 }
 
 func gcd(a, b int) int {

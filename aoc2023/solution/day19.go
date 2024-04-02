@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// TODO : improve code structure and readability.
 func SolveDay19(ctx context.Context) (int, error) {
 	lines, err := common.ReadAllLines(ctx, "day19.txt")
 	if err != nil {
@@ -67,7 +68,7 @@ func processWorkflowStep(ctx context.Context, step workflowStep, partSpace workf
 	included.partRange = partSpace.partRange
 	excluded := workflowStep{}
 	excluded.partRange = partSpace.partRange
-	for part := partCategoryX; part < __maxPartIndex__; part++ {
+	for part := partCategoryX; part < __maxPartCategory__; part++ {
 		if step.min[part] == 0 {
 			continue
 		}
@@ -150,8 +151,8 @@ func ParseWorkflowStep(step string) (workflowStep, error) {
 
 var maxWorkflowStep = workflowStep{
 	partRange: partRange{
-		min: [__maxPartIndex__]int{1, 1, 1, 1},
-		max: [__maxPartIndex__]int{4001, 4001, 4001, 4001},
+		min: [__maxPartCategory__]int{1, 1, 1, 1},
+		max: [__maxPartCategory__]int{4001, 4001, 4001, 4001},
 	},
 }
 
@@ -163,12 +164,12 @@ const (
 	partCategoryA
 	partCategoryS
 
-	__maxPartIndex__
+	__maxPartCategory__
 )
 
 type partRange struct {
-	min [__maxPartIndex__]int
-	max [__maxPartIndex__]int
+	min [__maxPartCategory__]int
+	max [__maxPartCategory__]int
 }
 
 type workflowStep struct {

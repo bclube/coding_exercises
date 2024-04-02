@@ -1,0 +1,67 @@
+broadcaster -> mn
+%mn -> bc, hv
+%hv -> xb
+%xb -> zl
+%zl -> zh
+%zh -> bc, st
+%st -> bc, mm
+%mm -> gz
+%gz -> nf
+%nf -> bc, tg
+%tg -> bc, dx
+%dx -> bc, hk
+%hk -> bc
+&bc -> mn, zl, xb, mm, dh, hv, gz
+&dh -> jm
+&jm -> rx
+
+broadcaster -> xc
+%xc -> bx, pm
+%pm -> bx, nq
+%nq -> bx, dg
+%dg -> bx, ll
+%ll -> zx
+%zx -> bx, ms
+%ms -> bx, xh
+%xh -> bx, vt
+%vt -> bx, lr
+%lr -> bx, fr
+%fr -> bx, tb
+%tb -> bx
+&bx -> ll, xc, db
+&db -> jm
+&jm -> rx
+
+broadcaster -> pl
+%pl -> qq, rh
+%rh -> qq, lp
+%lp -> lz
+%lz -> qq, cv
+%cv -> vq
+%vq -> bt
+%bt -> gr
+%gr -> hn
+%hn -> qq, gv
+%gv -> qq, xf
+%xf -> qq, qj
+%qj -> qq
+&qq -> lm, gr, cv, vq, lp, pl, bt
+&lm -> jm
+&jm -> rx
+
+broadcaster -> xr
+%xr -> gj, sc
+%sc -> gj, ks
+%ks -> nd
+%nd -> gj, tr
+%tr -> gj, sz
+%sz -> gj, ld
+%ld -> cl
+%cl -> gj, jf
+%jf -> gj, qc
+%qc -> gj, sf
+%sf -> gj, pz
+%pz -> gj
+&gj -> ks, ld, sg, xr
+&sg -> jm
+&jm -> rx
