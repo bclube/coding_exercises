@@ -1,62 +1,87 @@
-% Flip-flop:
-start: 0
-| state | input | next | output |
-| 0     | 0     | 1    | 1      |
-| 0     | 1     | -    | -      |
-| 1     | 0     | 0    | 0      |
-| 1     | 1     | -    | -      |
-state  => input == 0 ? !state : state
-output => input == 0 ? !state : nil
+  202300 blocks of 131 steps each
+**********
+*   65   *
+*65 SS 65* => odd
+*   65   *
+**********
+  131*202300
+
+  o
+ oeo
+oeoeo
+ oeo
+  o
+
+         o
+        ooo
+      e ooo e
+
+     oo eee oo
+    ooo eee ooo
+  e ooo eee ooo e
+
+ oo eee ooo eee oo
+ooo eee ooo eee ooo
+ oo eee ooo eee oo
+
+  e ooo eee ooo e
+    ooo eee ooo
+     oo eee oo
+
+      e ooo e
+        ooo
+         o
+
+2 * 2 even
++2 * ul even (plus 65)
++2 * bl even (plus 65)
++2 * ur even (plus 65)
++2 * br even (plus 65)
+3 * 3 odd
+-3 * ul odd
+-3 * bl odd
+-3 * ur odd
+-3 * br odd
 
 
-
-& Conjunction:
-start: 0
-| state | input | next | output |
-| 0     | 0     | 0    | 1      |
-| 0     | 1     | 1    | 1      |
-| 1     | 0     | 0    | 1      |
-| 1     | 1     | 1    | 0      |
-state  => input
-output => !(input && state)
-
-
-conj
-A
-b
-c
-d
-
-flip
+202300 * 202300 odd
+-202300 * ul odd
+-202300 * bl odd
+-202300 * ur odd
+-202300 * br odd
+202299 * 202299 even
+202299 * (65 + ul even)
+202299 * (65 + bl even)
+202299 * (65 + ur even)
+202299 * (65 + br even)
 
 
-3851
+5513 even
+5481 odd
 
 
-broadcaster -> mn
-1111 0011 0001 -> 3889
-1111 0011 0010
-1111 0011 1010
-1111 0011 1110
-1111 0111 1110
-0000 0000 0000
+  404601 up-down
+  404601 left-right
 
-broadcaster -> xc
-1111 1110 1111 -> 4079
-1111 1111 1111
-0000 0000 0000
+  404601*404601
 
-broadcaster -> pl
-1111 0000 1011 -> 3851
-1111 1000 1011
-1111 1001 1011
-1111 1011 1011
-1111 1011 1111
-1111 1100 0000
-0000 0000 0000
+163701969201 / 2
+81850984600.5
 
-broadcaster -> xr
-1111 1011 1011 -> 4027
-1111 1011 1111
-1111 1111 1111
-0000 0000 0000
+81850984600 odd
+81850984601 even
+
+(81850984600 * odd + 81850984601 * even) / 2
+
+
+  13250682
++ 13250683
+= 26501365
+
+   6625341
++  6625342
+= 13250683
+
+  26501365
+-       65
+= 26501300
