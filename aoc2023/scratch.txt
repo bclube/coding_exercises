@@ -1,87 +1,33 @@
-  202300 blocks of 131 steps each
-**********
-*   65   *
-*65 SS 65* => odd
-*   65   *
-**********
-  131*202300
+x range 0-9
+y range 0-9
+z range 1-375
 
-  o
- oeo
-oeoeo
- oeo
-  o
+1,498 bricks
 
-         o
-        ooo
-      e ooo e
+10x10x375 array
+of two bytes each
 
-     oo eee oo
-    ooo eee ooo
-  e ooo eee ooo e
+vertical slices are of 375 are close to each other
+- better vertical scanning?
+- or is it better to do layer by layer?
 
- oo eee ooo eee oo
-ooo eee ooo eee ooo
- oo eee ooo eee oo
+settle bricks:
+sort bricks by their min z coord, ascending
+move each brick down until it can't move any more
 
-  e ooo eee ooo e
-    ooo eee ooo
-     oo eee oo
+count disintegratable bricks:
+scan top to bottom
+if a brick has only one supporting brick, flag it as undeletable
+at the end, count up all bricks that have not been flagged
 
-      e ooo e
-        ooo
-         o
-
-2 * 2 even
-+2 * ul even (plus 65)
-+2 * bl even (plus 65)
-+2 * ur even (plus 65)
-+2 * br even (plus 65)
-3 * 3 odd
--3 * ul odd
--3 * bl odd
--3 * ur odd
--3 * br odd
+a,b,c   nil    b, c
 
 
-202300 * 202300 odd
--202300 * ul odd
--202300 * bl odd
--202300 * ur odd
--202300 * br odd
-202299 * 202299 even
-202299 * (65 + ul even)
-202299 * (65 + bl even)
-202299 * (65 + ur even)
-202299 * (65 + br even)
+   a      {b,x}
+  xxxxxx  {b}
+  y z m   {b,c} {b,c} {b}
+ccccc m   {b} {b}
+  bbbbb   {}
 
-
-5513 even
-5481 odd
-
-
-  404601 up-down
-  404601 left-right
-
-  404601*404601
-
-163701969201 / 2
-81850984600.5
-
-81850984600 odd
-81850984601 even
-
-(81850984600 * odd + 81850984601 * even) / 2
-
-
-  13250682
-+ 13250683
-= 26501365
-
-   6625341
-+  6625342
-= 13250683
-
-  26501365
--       65
-= 26501300
+support chain will be intersection of all support chains
+if supported by only a single block, add supporting block to your chain
