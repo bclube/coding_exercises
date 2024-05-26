@@ -44,7 +44,7 @@ func countAcceptedBranchCombinations(ctx context.Context, workflow string, workf
 	excluded := partSpace
 	for _, step := range workflows[workflow] {
 		var included workflowStep
-		included, excluded = processWorkflowStep(ctx, step, excluded)
+		included, excluded = processWorkflowStep(step, excluded)
 		for _, parts := range []workflowStep{included, excluded} {
 			switch {
 			case parts.isEmpty(), parts.rejected:
@@ -63,7 +63,7 @@ func countAcceptedBranchCombinations(ctx context.Context, workflow string, workf
 	return result, nil
 }
 
-func processWorkflowStep(ctx context.Context, step workflowStep, partSpace workflowStep) (workflowStep, workflowStep) {
+func processWorkflowStep(step workflowStep, partSpace workflowStep) (workflowStep, workflowStep) {
 	included := step
 	included.partRange = partSpace.partRange
 	excluded := workflowStep{}

@@ -59,9 +59,6 @@ func parseTrenchInstruction(ctx context.Context, line string) (
 	case '3':
 		result.upDown = -result.magnitude
 	}
-	if err != nil {
-		return
-	}
 	return
 }
 

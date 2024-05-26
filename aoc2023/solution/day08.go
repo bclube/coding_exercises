@@ -32,15 +32,15 @@ func SolveDay08(ctx context.Context) (int, error) {
 	// NOTE: This is not a general solution; it is optimized for the provided data set.
 	// Of note, this solution will NOT work for the test data set.
 	// The provided data set contains six traversers; each with a different cycle length
-	leastCommonMultiple := findCycle(ctx, desertMap.startingNodes[0], desertMap.directions)
+	leastCommonMultiple := findCycle(desertMap.startingNodes[0], desertMap.directions)
 	for _, t := range desertMap.startingNodes[1:] {
-		cycle := findCycle(ctx, t, desertMap.directions)
+		cycle := findCycle(t, desertMap.directions)
 		leastCommonMultiple = lcm(leastCommonMultiple, cycle)
 	}
 	return leastCommonMultiple, nil
 }
 
-func findCycle(ctx context.Context, fromNode *desertNetworkNode, directions string) int {
+func findCycle(fromNode *desertNetworkNode, directions string) int {
 	var currentInstruction int
 	firstNode, distanceToFirstEndNode := findNextEndNode(fromNode, &currentInstruction, directions)
 	if currentInstruction != 0 {

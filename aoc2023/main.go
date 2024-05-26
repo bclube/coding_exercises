@@ -69,9 +69,7 @@ func waitWithTimeout(
 			graceTimer = nil
 			fmt.Println("\t*** attempting graceful shutdown")
 		case <-forcedShutdownTimer:
-			if err == nil {
-				err = ctx.Err()
-			}
+			err = ctx.Err()
 			if err != nil {
 				return fmt.Errorf("forced shutdown after %v: %w", timeout, err)
 			}
