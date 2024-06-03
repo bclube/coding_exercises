@@ -1,11 +1,12 @@
 mod common;
 
-use crate::common::file::lines_from_file;
+use crate::common::file::lines;
+use std::io::Result;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let values = calibration_table_values();
     let mut sum = 0;
-    for line in lines_from_file("day01.txt")? {
+    for line in lines("day01.txt")? {
         sum += extract_calibration_values(line?, &values)?;
     }
 
@@ -39,17 +40,19 @@ fn calibration_table_values() -> CalibrationTable {
     ]
 }
 
-fn extract_calibration_values(
-    line: String,
-    values: &[CalibrationTableValue],
-) -> Result<i32, Box<dyn std::error::Error>> {
+fn extract_calibration_values(line: String, values: &[CalibrationTableValue]) -> Result<i32> {
     let first = std::iter::successors(Some(&line[..]), |s| (!s.is_empty()).then(|| &s[1..]))
         .find_map(|s| {
             values
                 .iter()
                 .find_map(|&(name, value)| s.starts_with(name).then(|| value))
         })
-        .ok_or("No value found")?;
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "No value found at start of line",
+            )
+        })?;
 
     let last = std::iter::successors(Some(&line[..]), |s| {
         (!s.is_empty()).then(|| &s[..s.len() - 1])
@@ -59,7 +62,15 @@ fn extract_calibration_values(
             .iter()
             .find_map(|&(name, value)| s.ends_with(name).then(|| value))
     })
-    .ok_or("No value found")?;
+    // This should always succeed; if we found a value at the start of the line, we should also
+    // find it when searching in reverse. In addition, the problem inputs are well-formed; but
+    // this is a coding exercise and I'm trying to develop and practice good error handling habits :).
+    .ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "No value found at end of line",
+        )
+    })?;
 
     Ok(first * 10 + last)
 }
