@@ -1,12 +1,12 @@
 mod common;
 
-use crate::common::file::lines;
-use std::io::Result;
+use crate::common::file::input_file_lines;
+use anyhow::{anyhow, Result};
 
 fn main() -> Result<()> {
     let values = calibration_table_values();
     let mut sum = 0;
-    for line in lines("day01.txt")? {
+    for line in input_file_lines("day01.txt")? {
         sum += extract_calibration_values(line?, &values)?;
     }
 
@@ -47,12 +47,7 @@ fn extract_calibration_values(line: String, values: &[CalibrationTableValue]) ->
                 .iter()
                 .find_map(|&(name, value)| s.starts_with(name).then(|| value))
         })
-        .ok_or_else(|| {
-            std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "No value found at start of line",
-            )
-        })?;
+        .ok_or_else(|| anyhow!("No value found at start of line"))?;
 
     let last = std::iter::successors(Some(&line[..]), |s| {
         (!s.is_empty()).then(|| &s[..s.len() - 1])
@@ -65,12 +60,7 @@ fn extract_calibration_values(line: String, values: &[CalibrationTableValue]) ->
     // This should always succeed; if we found a value at the start of the line, we should also
     // find it when searching in reverse. In addition, the problem inputs are well-formed; but
     // this is a coding exercise and I'm trying to develop and practice good error handling habits :).
-    .ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "No value found at end of line",
-        )
-    })?;
+    .ok_or_else(|| anyhow!("No value found at end of line"))?;
 
     Ok(first * 10 + last)
 }
