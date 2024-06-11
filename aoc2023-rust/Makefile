@@ -9,7 +9,7 @@ ch:
 # release run
 rr:
 	cargo build --release
-	./target/release/aoc2023-rust
+	zsh -c 'time ./target/release/aoc2023-rust'
 
 # update dependencies
 up:
