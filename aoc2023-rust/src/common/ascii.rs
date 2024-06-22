@@ -1,8 +1,11 @@
-pub fn parse_digit(byte: u8) -> Option<u8> {
+// Suppress dead code warnings, since not all of this code is used in every solution.
+#![allow(dead_code)]
+
+pub(crate) fn parse_digit(byte: u8) -> Option<u8> {
     byte.checked_sub(b'0').and_then(|c| (c < 10).then(|| c))
 }
 
-pub fn parse_int<T>(bytes: &[u8]) -> Option<T>
+pub(crate) fn parse_int<T>(bytes: &[u8]) -> Option<T>
 where
     T: From<u8> + std::ops::Mul<Output = T>,
     <T as std::ops::Mul>::Output: From<u8> + std::ops::Add<Output = T> + From<u8>,

@@ -1,12 +1,12 @@
 mod common;
-mod day02;
+mod day03;
 
 use anyhow::Result;
 
 fn main() -> Result<()> {
-    let sum = day02::solve()?;
+    let result = day03::solve();
 
-    println!("{}", sum);
+    println!("{}", result);
 
     Ok(())
 }
